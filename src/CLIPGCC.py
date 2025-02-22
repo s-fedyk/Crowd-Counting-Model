@@ -23,6 +23,8 @@ class CrowdCountingLoss(nn.Module):
 
 
 class HeadPointRegressor(nn.Module):
+    """This network takes in features, outputs a grid of where it thinks heads are"""
+
     def __init__(self, in_channels, mid_channels=64, upsample_scale=32):
         super(HeadPointRegressor, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, mid_channels,
