@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class CrowdCountingLoss(nn.Module):
     def __init__(self, count_loss_weight=1.0):
         super(CrowdCountingLoss, self).__init__()
@@ -11,7 +10,6 @@ class CrowdCountingLoss(nn.Module):
         self.count_loss_weight = count_loss_weight
 
     def forward(self, pred_points, gt_points):
-
         mse = self.mse_loss(pred_points, gt_points)
         pred_count = pred_points.sum(dim=[1, 2, 3])
         gt_count = gt_points.sum(dim=[1, 2, 3])
@@ -25,24 +23,29 @@ class CrowdCountingLoss(nn.Module):
 class HeadPointRegressor(nn.Module):
     """This network takes in features, outputs a grid of where it thinks heads are"""
 
-    def __init__(self, in_channels, mid_channels=64, upsample_scale=32):
+    def __init__(self, in_channels, mid_channels=64, upsample_scale=32, threshold = 0.5):
         super(HeadPointRegressor, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, mid_channels,
-                               kernel_size=3, padding=1)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(mid_channels, 1, kernel_size=1)
-        self.upsample_scale = upsample_scale
+        
+        self.decoder = nn.Sequential(
+            nn.Conv2d(in_channels, 256, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(256, 128, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(128, 64, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 1, 1)
+        )
 
-    def forward(self, visual_features):
-        visual_features = self.conv1(visual_features)
-        visual_features = self.relu(visual_features)
+        self.upsampler = nn.Sequential(
+            nn.ConvTranspose2d(1, 1, 4, stride=2, padding=1),
+            nn.ReLU()
+        )  # Repeat 5x for 32x upsampling
 
-        point_map = self.conv2(visual_features)
-        if self.upsample_scale is not None:
-            point_map = F.interpolate(point_map, scale_factor=self.upsample_scale,
-                                      mode='bilinear', align_corners=False)
-
-        return point_map
+    def forward(self, x):
+        x = self.decoder(x)
+        for _ in range(5):  # 2^5=32 upsampling
+            x = self.upsampler(x)
+        return torch.relu(x) + 1e-7
 
 
 def reshape_tokens_to_grid(tokens):
