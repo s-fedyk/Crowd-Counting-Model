@@ -7,3 +7,6 @@ huggingface_hub
 safetensors
 timm
 kagglehub
+geomloss
+pykeops
+tensorboard

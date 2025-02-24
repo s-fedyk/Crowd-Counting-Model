@@ -2,49 +2,43 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class CrowdCountingLoss(nn.Module):
-    def __init__(self, count_loss_weight=1.0):
-        super(CrowdCountingLoss, self).__init__()
-
-        self.mse_loss = nn.MSELoss()
-        self.count_loss_weight = count_loss_weight
-
-    def forward(self, pred_points, gt_points):
-        mse = self.mse_loss(pred_points, gt_points)
-        pred_count = pred_points.sum(dim=[1, 2, 3])
-        gt_count = gt_points.sum(dim=[1, 2, 3])
-        count_loss = torch.mean((pred_count - gt_count) ** 2)
-
-        total_loss = mse + self.count_loss_weight * count_loss
-
-        return total_loss
-
-
 class HeadPointRegressor(nn.Module):
-    """This network takes in features, outputs a grid of where it thinks heads are"""
+    """
+    This regressor takes in a grid of features, and outputs where it thinks there should be points.
+    """
 
-    def __init__(self, in_channels, mid_channels=64, upsample_scale=32, threshold = 0.5):
+    def __init__(self, in_channels):
         super(HeadPointRegressor, self).__init__()
         
         self.decoder = nn.Sequential(
-            nn.Conv2d(in_channels, 256, 3, padding=1),
+            nn.Conv2d(768, 256, 3, padding=1),
+            nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.Conv2d(256, 128, 3, padding=1),
+            nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.Conv2d(128, 64, 3, padding=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.Conv2d(64, 1, 1)
         )
-
+        
+        
         self.upsampler = nn.Sequential(
             nn.ConvTranspose2d(1, 1, 4, stride=2, padding=1),
-            nn.ReLU()
-        )  # Repeat 5x for 32x upsampling
+            nn.BatchNorm2d(1),
+            nn.LeakyReLU(0.2)
+        )
 
     def forward(self, x):
+        # find out where the points are
         x = self.decoder(x)
-        for _ in range(5):  # 2^5=32 upsampling
+
+        # upscale the grid to 224x224
+        for _ in range(5):  
             x = self.upsampler(x)
+
+        # We need RELU because we can't have negatives in the output.
         return torch.relu(x) + 1e-7
 
 
@@ -65,11 +59,8 @@ class CLIPGCC(nn.Module):
         self.clip_model = clip_model
 
         self.feature_dim = 768
-
         self.regressor = HeadPointRegressor(
-            in_channels=768,
-            mid_channels=regressor_channels,
-            upsample_scale=32
+            in_channels=self.feature_dim,
         )
 
     def forward(self, x):
@@ -78,6 +69,7 @@ class CLIPGCC(nn.Module):
         return self.regressor(grid_features)
 
     def get_grid_features(self, x):
+        # tokens is a bunch of features.
         _, tokens = self.clip_model.visual(x)
 
         grid_of_patch_tokens = reshape_tokens_to_grid(tokens)
