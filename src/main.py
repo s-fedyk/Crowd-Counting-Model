@@ -15,8 +15,7 @@ import numpy as np
 from CLIPGCC import CLIPGCC
 from losses import CrowdCountingLoss
 
-from CLIP.tokenizer import tokenize
-from CLIP.factory import create_model_and_transforms, create_model_from_pretrained
+from CLIP.factory import create_model_from_pretrained
 from datasets import CrowdDataset, preprocess
 
 def setup_logging(log_dir):
@@ -110,6 +109,12 @@ def parse_args():
     parser.add_argument('--clip-model', type=str, default='ViT-B/16',
                       choices=['ViT-B/32', 'ViT-B/16'],
                       help='CLIP model variant to use')
+    parser.add_argument('--eval-path', type=str, default='ShanghaiTech/part_B/test_data',
+                      help='Input evaluation directory')
+    parser.add_argument('--train-path', type=str, default='ShanghaiTech/part_B/train_data',
+                      help='Input train directory')
+
+
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -122,30 +127,36 @@ if __name__ == "__main__":
     clip_model, img_transforms = create_model_from_pretrained(args.clip_model, pretrained="openai")
     clip_model.to(device)
 
-
     # Create the CLIP-guided crowd counting model.
     clipgcc_model = CLIPGCC(clip_model).to(device)
     clipgcc_model.train()
 
-    #preprocess("./data/ShanghaiTech/part_B/train_data", "./processed/train_dataset")
+    # Train dataset
+    input_train_path = f"./data/{args.train_path}"
+    processed_train_path = f"./processed/train_{args.train_path}"
+    if not os.path.exists(processed_train_path):
+        preprocess(input_train_path, processed_train_path)
+
     # Training dataset
-    train_dataset_root = "./processed/train_dataset"
-    train_dataset = CrowdDataset(root=train_dataset_root, transform=img_transforms)
+    train_dataset = CrowdDataset(root=processed_train_path, transform=img_transforms)
     dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
 
-    #preprocess("./data/ShanghaiTech/part_B/test_data"  , "./processed/eval_dataset")
-    # Evaluation dataset
-    eval_dataset_root = "./processed/eval_dataset" 
-    eval_dataset = CrowdDataset(root=eval_dataset_root, transform=img_transforms)
+    # Eval dataset
+    input_eval_path = f"./data/{args.eval_path}"
+    processed_eval_path = f"./processed/eval_{args.eval_path}"
+    if not os.path.exists(processed_eval_path):
+        preprocess(input_eval_path, processed_eval_path)
+
+    eval_dataset = CrowdDataset(root=processed_eval_path, transform=img_transforms)
     eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
-    # Loss and optimizer.
     loss_fn = CrowdCountingLoss()
     optimizer = optim.Adam(clipgcc_model.parameters(), lr=args.lr, weight_decay=1e-4)
+    best_eval_mae = float('inf')
 
     writer = SummaryWriter()
 
-    num_epochs = 900
+    num_epochs = args.epochs
     for epoch in range(num_epochs):
         running_loss = 0.0
         for images, gt_maps in tqdm(dataloader, desc="Epoch Progress"):
@@ -167,7 +178,9 @@ if __name__ == "__main__":
         print(f"Epoch [{epoch+1}/{num_epochs}] Loss: {avg_loss:.4f}")
         writer.add_scalar('Loss/train', avg_loss, epoch)
 
-        # --- Every 5 Epochs: Display a couple evaluation samples ---
+        if ((epoch+1) % args.save_interval == 0):
+            save_checkpoint(clipgcc_model, optimizer, epoch+1, args.log_dir)
+
         if ((epoch+1) % args.eval_interval == 0): 
             clipgcc_model.eval()
             total_abs_error = 0.0
@@ -176,7 +189,7 @@ if __name__ == "__main__":
                 for images, gt_maps in eval_dataloader:
                     images = images.to(device)
                     gt_maps = gt_maps.to(device)
-                    pred_map = clipgcc_model(images)  
+                    pred_map = clipgcc_model(images)
 
                     pred_count = pred_map.sum(dim=[1,2,3])
                     gt_count = gt_maps.sum(dim=[1,2,3])
@@ -185,6 +198,11 @@ if __name__ == "__main__":
                     total_images += images.size(0)
 
             mae = total_abs_error / total_images
+
+            if mae < best_eval_mae:
+                save_checkpoint(clipgcc_model, optimizer, epoch+1, args.log_dir, True)
+                best_eval_mae = mae
+
             print(f"Epoch [{epoch+1}/{num_epochs}] Evaluation MAE: {mae:.2f}")
             writer.add_scalar('mae/test', mae, num_epochs)
 
@@ -192,11 +210,10 @@ if __name__ == "__main__":
             with torch.no_grad():
                 for i in range(10):
                     image, gt_map = eval_dataset[i]
-                    image_tensor = image.unsqueeze(0).to(device)  # [1, 3, 224, 224]
-                    pred_map = clipgcc_model(image_tensor)  # [1, 1, 224, 224]
+                    image_tensor = image.unsqueeze(0).to(device) 
+                    pred_map = clipgcc_model(image_tensor)
                     logging.info(f"Epoch {epoch+1}: Sample {i+1} predicted count: {pred_map.sum().item():.2f}, real count: {gt_map.sum().item():.2f}")
                     print(f"Epoch {epoch+1}: Sample {i+1} predicted count: {pred_map.sum().item():.2f}, real count: {gt_map.sum().item():.2f}")
-
             clipgcc_model.train()
         # Switch back to train mode.
         clipgcc_model.train()

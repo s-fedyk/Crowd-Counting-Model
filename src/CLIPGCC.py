@@ -12,13 +12,10 @@ class HeadPointRegressor(nn.Module):
         
         self.decoder = nn.Sequential(
             nn.Conv2d(768, 256, 3, padding=1),
-            nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.Conv2d(256, 128, 3, padding=1),
-            nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.Conv2d(128, 64, 3, padding=1),
-            nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.Conv2d(64, 1, 1)
         )
@@ -26,8 +23,7 @@ class HeadPointRegressor(nn.Module):
         
         self.upsampler = nn.Sequential(
             nn.ConvTranspose2d(1, 1, 4, stride=2, padding=1),
-            nn.BatchNorm2d(1),
-            nn.LeakyReLU(0.2)
+            nn.ReLU()
         )
 
     def forward(self, x):
