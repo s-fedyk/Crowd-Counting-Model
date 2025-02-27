@@ -11,7 +11,7 @@ class HeadPointRegressor(nn.Module):
         super(HeadPointRegressor, self).__init__()
         
         self.decoder = nn.Sequential(
-            nn.Conv2d(768, 256, 3, padding=1),
+            nn.Conv2d(in_channels, 256, 3, padding=1),
             nn.ReLU(),
             nn.Conv2d(256, 128, 3, padding=1),
             nn.ReLU(),
@@ -20,22 +20,16 @@ class HeadPointRegressor(nn.Module):
             nn.Conv2d(64, 1, 1)
         )
         
-        
-        self.upsampler = nn.Sequential(
-            nn.ConvTranspose2d(1, 1, 4, stride=2, padding=1),
-            nn.ReLU()
-        )
+        self.upsampler = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
     def forward(self, x):
         # find out where the points are
         x = self.decoder(x)
 
         # upscale the grid to 224x224
-        for _ in range(5):  
-            x = self.upsampler(x)
+        x = self.upsampler(x)
 
-        # We need RELU because we can't have negatives in the output.
-        return torch.relu(x) + 1e-7
+        return torch.sigmoid(x)
 
 
 def reshape_tokens_to_grid(tokens):

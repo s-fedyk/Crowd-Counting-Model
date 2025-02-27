@@ -13,4 +13,6 @@ class CrowdCountingLoss(nn.Module):
         gt_count = gt_points.sum(dim=[1, 2, 3])
         count_loss = torch.mean((pred_count - gt_count) ** 2)
 
-        return count_loss
+        total_loss = count_loss
+
+        return total_loss

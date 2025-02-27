@@ -25,7 +25,6 @@ def plot_sample(image, gt_map):
     gt_points = np.argwhere(gt_np > 0.5)
     
     gt_count = int(gt_np.sum())
-    print(f"\n  HERE {gt_points}")
     # Plot image with ground truth points
     plt.figure(figsize=(12, 5))
     plt.subplot(1, 2, 1)

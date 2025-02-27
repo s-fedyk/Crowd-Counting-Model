@@ -106,7 +106,7 @@ def parse_args():
                       help='Save checkpoint every N epochs')
     parser.add_argument('--eval-interval', type=int, default=5,
                       help='Run evaluation every N epochs')
-    parser.add_argument('--clip-model', type=str, default='ViT-B/16',
+    parser.add_argument('--clip-model', type=str, default='ViT-B/32',
                       choices=['ViT-B/32', 'ViT-B/16'],
                       help='CLIP model variant to use')
     parser.add_argument('--eval-path', type=str, default='ShanghaiTech/part_B/test_data',
@@ -120,12 +120,15 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     setup_logging(args.log_dir)
+    print(f"learning rate is {args.lr}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("here",torch.cuda.is_available())
 
     # Load the CLIP model and associated transforms.
-    clip_model, img_transforms = create_model_from_pretrained(args.clip_model, pretrained="openai")
+    clip_model, img_transforms = create_model_from_pretrained(args.clip_model, pretrained="openai", force_quick_gelu=True)
     clip_model.to(device)
+    clip_model.eval()
 
     # Create the CLIP-guided crowd counting model.
     clipgcc_model = CLIPGCC(clip_model).to(device)
@@ -151,7 +154,7 @@ if __name__ == "__main__":
     eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
     loss_fn = CrowdCountingLoss()
-    optimizer = optim.Adam(clipgcc_model.parameters(), lr=args.lr, weight_decay=1e-4)
+    optimizer = optim.Adam(clipgcc_model.parameters(), lr=args.lr)
     best_eval_mae = float('inf')
 
     writer = SummaryWriter()
@@ -167,8 +170,6 @@ if __name__ == "__main__":
             pred_map = clipgcc_model(images)  # [B, 1, 224, 224]
             loss = loss_fn(pred_map, gt_maps)
             loss.backward()
-
-            torch.nn.utils.clip_grad_norm_(clipgcc_model.parameters(), max_norm=5.0)
 
             optimizer.step()
 
@@ -204,7 +205,7 @@ if __name__ == "__main__":
                 best_eval_mae = mae
 
             print(f"Epoch [{epoch+1}/{num_epochs}] Evaluation MAE: {mae:.2f}")
-            writer.add_scalar('mae/test', mae, num_epochs)
+            writer.add_scalar('mae/test', mae, epoch)
 
             clipgcc_model.eval()
             with torch.no_grad():

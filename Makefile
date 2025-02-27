@@ -6,3 +6,6 @@ tensorboard:
 	python3 -m tensorboard.main --logdir=runs
 shtech:
 	python3 src/shtech.py
+clean:
+	- rm -rf runs/*
+	- rm -rf experiments/*
