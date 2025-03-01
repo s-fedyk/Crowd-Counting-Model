@@ -1,18 +1,29 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+# Code modified from https://github.com/cvlab-stonybrook/DM-Count/blob/master/losses/bregman_pytorch.py
+import torch
+from geomloss import SamplesLoss
 
 class CrowdCountingLoss(nn.Module):
-    def __init__(self, count_loss_weight=1.0):
-        super(CrowdCountingLoss, self).__init__()
+    def __init__(self, alpha=0.1, sinkhorn_blur=0.05):
+        super().__init__()
+        self.alpha = alpha
+        self.sinkhorn = SamplesLoss(
+            loss="sinkhorn", 
+            p=2, 
+            # Specify spatial dimensions for [B, H, W] tensors
+            backend="multiscale",  # Crucial for image data
+            diameter=224.0,        # Match your image size
+            scaling=0.8
+        )        
+    def forward(self, pred_map, gt_map):
+        pred_count = pred_map.sum(dim=[1,2,3])
+        gt_count = gt_map.sum(dim=[1,2,3])
+        count_loss = F.mse_loss(pred_count, gt_count)
+        pred_map = pred_map.squeeze(1)
+        gt_map = gt_map.squeeze(1)
+        pred_map = pred_map / (pred_map.sum(dim=(1,2), keepdim=True) + 1e-8)
+        gt_map = gt_map / (gt_map.sum(dim=(1,2), keepdim=True) + 1e-8)
 
-        self.mse_loss = nn.MSELoss()
-        self.count_loss_weight = count_loss_weight
-
-    def forward(self, pred_points, gt_points):
-        pred_count = pred_points.sum(dim=[1, 2, 3])
-        gt_count = gt_points.sum(dim=[1, 2, 3])
-        count_loss = torch.mean((pred_count - gt_count) ** 2)
-
-        total_loss = count_loss
-
-        return total_loss
+        return count_loss + torch.mean(self.sinkhorn(pred_map, gt_map))

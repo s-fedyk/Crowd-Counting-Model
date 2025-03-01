@@ -11,23 +11,30 @@ class HeadPointRegressor(nn.Module):
         super(HeadPointRegressor, self).__init__()
         
         self.decoder = nn.Sequential(
-            nn.Conv2d(in_channels, 256, 3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(256, 128, 3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(128, 64, 3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 1, 1)
+            nn.Conv2d(in_channels, 512, 3, padding=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
+            
+            self._upsample_block(512, 256),  # 14x14
+            self._upsample_block(256, 128),  # 28x28
+            self._upsample_block(128, 64),   # 56x56
+            self._upsample_block(64, 32),    # 112x112
+            self._upsample_block(32, 16),    # 224x224
+            
+            nn.Conv2d(16, 1, 3, padding=1),
         )
-        
-        self.upsampler = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+
+    def _upsample_block(self, in_channels, out_channels):
+        return nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+            nn.Conv2d(in_channels, out_channels, 3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
 
     def forward(self, x):
         # find out where the points are
         x = self.decoder(x)
-
-        # upscale the grid to 224x224
-        x = self.upsampler(x)
 
         return torch.sigmoid(x)
 
