@@ -60,7 +60,7 @@ def plot_sample(image, gt_map, pred_map):
     plt.axis("off")
 
     plt.tight_layout()
-    plt.show()
+    return plt
 
 
 def load_model_for_eval(checkpoint_path, clip_model_type='ViT-B/32', device='cuda'):
@@ -128,8 +128,7 @@ if __name__ == "__main__":
         images = images.to(device)
         gt_maps = gt_maps.to(device)
         pred_map = model(images)
-        print(images.shape, gt_maps.shape, pred_map.shape)
-        plot_sample(images[0], gt_maps[0], pred_map[0])
+        plot_sample(images[0], gt_maps[0], pred_map[0]).show()
 
         pred_count = pred_map.sum(dim=[1,2,3])
         gt_count = gt_maps.sum(dim=[1,2,3])

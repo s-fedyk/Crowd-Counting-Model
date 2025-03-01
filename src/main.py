@@ -10,6 +10,7 @@ from tqdm import tqdm
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
+from eval import plot_sample
 import numpy as np
 
 from CLIPGCC import CLIPGCC
@@ -169,6 +170,7 @@ if __name__ == "__main__":
                     image, gt_map = eval_dataset[i]
                     image_tensor = image.unsqueeze(0).to(device) 
                     pred_map = clipgcc_model(image_tensor)
+                    plot_sample(image, gt_map, pred_map).savefig(f"{args.log_dir}/img-{i}")
                     logging.info(f"Epoch {epoch+1}: Sample {i+1} predicted count: {pred_map.sum().item():.2f}, real count: {gt_map.sum().item():.2f}")
                     print(f"Epoch {epoch+1}: Sample {i+1} predicted count: {pred_map.sum().item():.2f}, real count: {gt_map.sum().item():.2f}")
             clipgcc_model.train()

@@ -1,42 +1,48 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.modules import Dropout
+
+class Bilinear(torch.nn.Module):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def forward(self, feats, img):
+        _, _, h, w = img.shape
+        return F.interpolate(feats, (h, w), mode="bilinear")
 
 class HeadPointRegressor(nn.Module):
     """
     This regressor takes in a grid of features, and outputs where it thinks there should be points.
     """
 
-    def __init__(self, in_channels):
+    def __init__(self, in_channels, dropout=0.3):
         super(HeadPointRegressor, self).__init__()
         
-        self.decoder = nn.Sequential(
-            nn.Conv2d(in_channels, 512, 3, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            
-            self._upsample_block(512, 256),  # 14x14
-            self._upsample_block(256, 128),  # 28x28
-            self._upsample_block(128, 64),   # 56x56
-            self._upsample_block(64, 32),    # 112x112
-            self._upsample_block(32, 16),    # 224x224
-            
-            nn.Conv2d(16, 1, 3, padding=1),
+        self.decoder1 = nn.Sequential(
+            nn.Conv2d(in_channels, 256, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(256, 128, 3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(128, 64, 3, padding=1),
+            nn.ReLU(),
         )
 
-    def _upsample_block(self, in_channels, out_channels):
-        return nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            nn.Conv2d(in_channels, out_channels, 3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
+        self.decoder2 = nn.Sequential(
+            nn.Conv2d(64, 1, 1),
+            nn.ReLU(),
         )
+        
+        self.upsampler = Bilinear()
 
-    def forward(self, x):
-        # find out where the points are
-        x = self.decoder(x)
+    def forward(self, x, guidance):
+        for _ in range(5):
+            x = self.upsampler(x, guidance)
+        x = self.decoder1(x)
+        x = self.decoder2(x)
 
-        return torch.sigmoid(x)
+        return x
 
 
 def reshape_tokens_to_grid(tokens):
@@ -63,7 +69,7 @@ class CLIPGCC(nn.Module):
     def forward(self, x):
         grid_features = self.get_grid_features(x)
 
-        return self.regressor(grid_features)
+        return self.regressor(grid_features, x)
 
     def get_grid_features(self, x):
         # tokens is a bunch of features.
