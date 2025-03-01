@@ -49,54 +49,12 @@ def save_checkpoint(model, optimizer, epoch, log_dir, is_best=False):
     logging.info(f"Saved checkpoint to {save_path}")
 
 
-def plot_sample(image, gt_map, pred_map):
-    """
-    Plots the original image with overlayed ground truth and predicted points.
-    
-    Args:
-        image (torch.Tensor): Image tensor of shape [C, H, W].
-        gt_map (torch.Tensor): Ground truth binary point map of shape [1, H, W].
-        pred_map (torch.Tensor): Predicted binary point map of shape [1, H, W].
-    """
-    # Convert image to numpy, shape [H, W, C]
-    image_np = image.permute(1, 2, 0).cpu().numpy()
-    
-    # Squeeze maps to [H, W]
-    gt_np = gt_map.squeeze().cpu().numpy()
-    pred_np = pred_map.squeeze().cpu().numpy()
-    
-    # Extract point coordinates: (row, col)
-    gt_points = np.argwhere(gt_np > 0.5)
-    pred_points = np.argwhere(pred_np > 0.5)
-    
-    gt_count = int(gt_np.sum())
-    pred_count = int(pred_np.sum())
-    # Plot image with ground truth points
-    plt.figure(figsize=(12, 5))
-    plt.subplot(1, 2, 1)
-    plt.imshow(image_np)
-    if gt_points.size > 0:
-        plt.scatter(gt_points[:, 1], gt_points[:, 0], c='green', marker='o', label='GT Points')
-    plt.title(f"Ground Truth (Count = {gt_count})")
-    plt.axis("off")
-    plt.legend()
-    
-    # Plot image with predicted points
-    plt.subplot(1, 2, 2)
-    plt.imshow(image_np)
-    if pred_points.size > 0:
-        plt.scatter(pred_points[:, 1], pred_points[:, 0], c='red', marker='x', label='Predicted Points')
-    plt.title(f"Prediction (Count = {pred_count})")
-    plt.axis("off")
-    plt.legend()
-    
-    plt.show()
 
 def parse_args():
     parser = argparse.ArgumentParser(description='CLIP-Guided Crowd Counting Training')
     parser.add_argument('--epochs', type=int, default=900,
                       help='Number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=16,
+    parser.add_argument('--batch-size', type=int, default=8,
                       help='Input batch size for training')
     parser.add_argument('--lr', type=float, default=1e-4,
                       help='Learning rate')
@@ -120,10 +78,8 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     setup_logging(args.log_dir)
-    print(f"learning rate is {args.lr}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("here",torch.cuda.is_available())
 
     # Load the CLIP model and associated transforms.
     clip_model, img_transforms = create_model_from_pretrained(args.clip_model, pretrained="openai", force_quick_gelu=True)
@@ -179,8 +135,8 @@ if __name__ == "__main__":
         print(f"Epoch [{epoch+1}/{num_epochs}] Loss: {avg_loss:.4f}")
         writer.add_scalar('Loss/train', avg_loss, epoch)
 
-        if ((epoch+1) % args.save_interval == 0):
-            save_checkpoint(clipgcc_model, optimizer, epoch+1, args.log_dir)
+        #if ((epoch+1) % args.save_interval == 0):
+        #kj   save_checkpoint(clipgcc_model, optimizer, epoch+1, args.log_dir)
 
         if ((epoch+1) % args.eval_interval == 0): 
             clipgcc_model.eval()
@@ -191,7 +147,7 @@ if __name__ == "__main__":
                     images = images.to(device)
                     gt_maps = gt_maps.to(device)
                     pred_map = clipgcc_model(images)
-
+                    
                     pred_count = pred_map.sum(dim=[1,2,3])
                     gt_count = gt_maps.sum(dim=[1,2,3])
 
