@@ -28,38 +28,38 @@ def plot_sample(image, gt_map, pred_map):
         gt_map (torch.Tensor): Ground truth binary point map of shape [1, H, W].
         pred_map (torch.Tensor): Predicted binary point map of shape [1, H, W].
     """
-    # Convert image to numpy, shape [H, W, C]
     image_np = image.permute(1, 2, 0).cpu().numpy()
-    
-    # Squeeze maps to [H, W]
-    gt_np = gt_map.squeeze().cpu().numpy()
-    pred_np = pred_map.squeeze().cpu().numpy()
-    
-    # Extract point coordinates: (row, col)
-    gt_points = np.argwhere(gt_np > 0.5)
-    pred_points = np.argwhere(pred_np > 0.5)
-    
-    gt_count = int(gt_np.sum())
-    pred_count = int(pred_np.sum())
-    # Plot image with ground truth points
-    plt.figure(figsize=(12, 5))
-    plt.subplot(1, 2, 1)
+    gt_density = gt_map.squeeze().cpu().detach().numpy()
+    pred_density = pred_map.squeeze().cpu().detach().numpy()
+
+    # Calculate counts
+    gt_count = gt_density.sum()
+    pred_count = pred_density.sum()
+
+    # Create figure
+    plt.figure(figsize=(18, 6))
+
+    # Plot original image
+    plt.subplot(1, 3, 1)
     plt.imshow(image_np)
-    if gt_points.size > 0:
-        plt.scatter(gt_points[:, 1], gt_points[:, 0], c='green', marker='o', label='GT Points')
-    plt.title(f"Ground Truth (Count = {gt_count})")
+    plt.title("Original Image")
     plt.axis("off")
-    plt.legend()
-    
-    # Plot image with predicted points
-    plt.subplot(1, 2, 2)
-    plt.imshow(image_np)
-    if pred_points.size > 0:
-        plt.scatter(pred_points[:, 1], pred_points[:, 0], c='red', marker='x', label='Predicted Points')
-    plt.title(f"Prediction (Count = {pred_count})")
+
+    # Plot ground truth density map
+    plt.subplot(1, 3, 2)
+    plt.imshow(gt_density, cmap='jet')
+    plt.colorbar(fraction=0.046, pad=0.04)
+    plt.title(f"Ground Truth Density Map\nCount: {gt_count:.1f}")
     plt.axis("off")
-    plt.legend()
-    
+
+    # Plot predicted density map
+    plt.subplot(1, 3, 3)
+    plt.imshow(pred_density, cmap='jet')
+    plt.colorbar(fraction=0.046, pad=0.04)
+    plt.title(f"Predicted Density Map\nCount: {pred_count:.1f}")
+    plt.axis("off")
+
+    plt.tight_layout()
     plt.show()
 
 
@@ -122,6 +122,7 @@ if __name__ == "__main__":
 
     total_abs_error = 0
     total_images = 0
+    model.eval()
 
     for images, gt_maps in eval_dataloader:
         images = images.to(device)
