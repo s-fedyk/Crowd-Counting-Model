@@ -59,6 +59,33 @@ class IFA(torch.nn.Module):
         bcast_coord_feats = torch.broadcast_to(coord_diff_feats, (b, c2, h * 2, w * 2))
         return self.mlp(torch.cat([up_source, bcast_coord_feats], dim=1))  # + up_source
 
+
+"""
+        self.decoder1 = nn.Sequential(
+            IFA(in_channels),
+            nn.Dropout(dropout),
+            nn.Conv2d(in_channels, 256, 3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(256),
+            IFA(256),
+            nn.Dropout(dropout),
+            nn.Conv2d(256, 128, 3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(128),
+            IFA(128),
+            nn.Dropout(dropout),
+            nn.Conv2d(128, 64, 3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            IFA(64),
+            nn.Dropout(dropout),
+            nn.Conv2d(64, 1, 1),
+            nn.ReLU(),
+            nn.BatchNorm2d(1),
+            IFA(1),
+        )
+"""
+
 class HeadPointRegressor(nn.Module):
     """
     This regressor takes in a grid of features, and outputs where it thinks there should be points.
@@ -66,27 +93,36 @@ class HeadPointRegressor(nn.Module):
 
     def __init__(self, in_channels, dropout=0.3):
         super(HeadPointRegressor, self).__init__()
-        
+
         self.decoder1 = nn.Sequential(
+            IFA(in_channels),
+            nn.Dropout(dropout),
             nn.Conv2d(in_channels, 256, 3, padding=1),
             nn.ReLU(),
+            nn.BatchNorm2d(256),
+            IFA(256),
+            nn.Dropout(dropout),
             nn.Conv2d(256, 128, 3, padding=1),
             nn.ReLU(),
+            nn.BatchNorm2d(128),
+            IFA(128),
+            nn.Dropout(dropout),
             nn.Conv2d(128, 64, 3, padding=1),
             nn.ReLU(),
+            nn.BatchNorm2d(64),
+            IFA(64),
+            nn.Dropout(dropout),
             nn.Conv2d(64, 1, 1),
             nn.ReLU(),
+            nn.BatchNorm2d(1),
+            IFA(1),
         )
-
-        self.upsampler = IFA(in_channels)
-
+        
+        
     def forward(self, x):
         # find out where the points are
-        for _ in range(5):
-            x = self.upsampler(x, None)
-
         x = self.decoder1(x)
-
+        
         return x
 
 

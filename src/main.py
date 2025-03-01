@@ -111,7 +111,7 @@ if __name__ == "__main__":
     eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
     loss_fn = CrowdCountingLoss()
-    optimizer = optim.Adam(clipgcc_model.parameters(), lr=args.lr)
+    optimizer = optim.Adam(clipgcc_model.parameters(), lr=args.lr, weight_decay=1e-4)
     best_eval_mae = float('inf')
 
     writer = SummaryWriter()
