@@ -44,7 +44,7 @@ class IFA(torch.nn.Module):
             nn.Conv2d(feat_dim, feat_dim, 1),
         )
 
-    def forward(self, source, guidance):
+    def forward(self, source):
         b, c, h, w = source.shape
         up_source = F.interpolate(source, (h * 2, w * 2), mode="nearest")
         assert h == w
@@ -99,22 +99,18 @@ class HeadPointRegressor(nn.Module):
             nn.Dropout(dropout),
             nn.Conv2d(in_channels, 256, 3, padding=1),
             nn.ReLU(),
-            nn.BatchNorm2d(256),
             IFA(256),
             nn.Dropout(dropout),
             nn.Conv2d(256, 128, 3, padding=1),
             nn.ReLU(),
-            nn.BatchNorm2d(128),
             IFA(128),
             nn.Dropout(dropout),
             nn.Conv2d(128, 64, 3, padding=1),
             nn.ReLU(),
-            nn.BatchNorm2d(64),
             IFA(64),
             nn.Dropout(dropout),
             nn.Conv2d(64, 1, 1),
             nn.ReLU(),
-            nn.BatchNorm2d(1),
             IFA(1),
         )
         
@@ -123,7 +119,7 @@ class HeadPointRegressor(nn.Module):
         # find out where the points are
         x = self.decoder1(x)
         
-        return x
+        return torch.relu(x)
 
 
 def reshape_tokens_to_grid(tokens):
