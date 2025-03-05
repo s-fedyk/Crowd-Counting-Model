@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from eval import plot_sample
 import numpy as np
 
+
 from CLIPGCC import CLIPGCC
 from losses import CrowdCountingLoss
 
@@ -57,7 +58,7 @@ def parse_args():
                       help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=8,
                       help='Input batch size for training')
-    parser.add_argument('--lr', type=float, default=1e-4,
+    parser.add_argument('--lr', type=float, default=1e-5,
                       help='Learning rate')
     parser.add_argument('--log-dir', type=str, default='experiments',
                       help='Directory to save logs and checkpoints')
@@ -70,7 +71,7 @@ def parse_args():
                       help='CLIP model variant to use')
     parser.add_argument('--eval-path', type=str, default='ShanghaiTech/part_B/test_data',
                       help='Input evaluation directory')
-    parser.add_argument('--train-path', type=str, default='ShanghaiTech/part_B/train_data',
+    parser.add_argument('--train-path', type=str, default='ShanghaiTech/part_A/train_data',
                       help='Input train directory')
 
 
@@ -111,7 +112,7 @@ if __name__ == "__main__":
     eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
     loss_fn = CrowdCountingLoss()
-    optimizer = optim.Adam(clipgcc_model.parameters(), lr=args.lr, weight_decay=1e-4)
+    optimizer = optim.Adam(clipgcc_model.parameters(), lr=args.lr, weight_decay = 1e-4)
     best_eval_mae = float('inf')
 
     writer = SummaryWriter()
@@ -119,13 +120,14 @@ if __name__ == "__main__":
     num_epochs = args.epochs
     for epoch in range(num_epochs):
         running_loss = 0.0
-        for images, gt_maps in tqdm(dataloader, desc="Epoch Progress"):
+        for images, gt_maps, gt_blur_maps in tqdm(dataloader, desc="Epoch Progress"):
             images = images.to(device)    # [B, 3, 224, 224]
             gt_maps = gt_maps.to(device)    # [B, 1, 224, 224]
+            gt_blur_maps = gt_blur_maps.to(device)    # [B, 1, 224, 224]
 
             optimizer.zero_grad()
             pred_map = clipgcc_model(images)  # [B, 1, 224, 224]
-            loss = loss_fn(pred_map, gt_maps)
+            loss = loss_fn(pred_map, gt_maps, gt_blur_maps)
             loss.backward()
 
             optimizer.step()
@@ -144,7 +146,7 @@ if __name__ == "__main__":
             total_abs_error = 0.0
             total_images = 0
             with torch.no_grad():
-                for images, gt_maps in eval_dataloader:
+                for images, gt_maps,_ in eval_dataloader:
                     images = images.to(device)
                     gt_maps = gt_maps.to(device)
                     pred_map = clipgcc_model(images)
@@ -167,7 +169,7 @@ if __name__ == "__main__":
             clipgcc_model.eval()
             with torch.no_grad():
                 for i in range(10):
-                    image, gt_map = eval_dataset[i]
+                    image, gt_map,_ = eval_dataset[i]
                     image_tensor = image.unsqueeze(0).to(device) 
                     pred_map = clipgcc_model(image_tensor)
                     plot_sample(image, gt_map, pred_map).savefig(f"{args.log_dir}/img-{i}")

@@ -4,6 +4,7 @@ import scipy.io
 from tqdm import tqdm
 from PIL import Image
 import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter
 
 import torch
 import torch.nn as nn
@@ -161,13 +162,15 @@ def preprocess(root, processed_dir, patch_size=(224,224),
         
         # Load the ground truth and create a binary point map.
         gt_map = load_gt_from_mat(gt_path, original_size)  # shape: (H, W)
+        blur_gt_map = gaussian_filter(gt_map, sigma=1)
         
         # Split the image and ground truth into patches.
         image_patches = split_into_patches(image_np, patch_size)
         gt_patches = split_into_patches(gt_map, patch_size)
+        gt_blurred_patches = split_into_patches(blur_gt_map, patch_size)
         
         # Save each patch.
-        for idx, (img_patch, gt_patch) in enumerate(zip(image_patches, gt_patches)):
+        for idx, (img_patch, gt_patch, blur_patch) in enumerate(zip(image_patches, gt_patches, gt_blurred_patches)):
             # Save image patch as JPEG.
             patch_img = Image.fromarray(img_patch)
             img_patch_filename = f"{base}_patch_{idx}.jpg"
@@ -178,6 +181,11 @@ def preprocess(root, processed_dir, patch_size=(224,224),
             gt_patch_filename = f"{base}_patch_{idx}.npy"
             gt_patch_filepath = os.path.join(proc_gt_dir, gt_patch_filename)
             np.save(gt_patch_filepath, gt_patch)
+
+            # Save ground truth patch as .npy (matrix).
+            gt_patch_filename_blur = f"{base}_patch_{idx}_blur.npy"
+            gt_patch_filepath_blur = os.path.join(proc_gt_dir, gt_patch_filename_blur)
+            np.save(gt_patch_filepath_blur, blur_patch)
             
     print("Preprocessing complete. Processed data saved to", processed_dir)
 
@@ -207,6 +215,7 @@ class CrowdDataset(Dataset):
         self.gt_transform = gt_transform
         self.image_paths = []
         self.gt_paths = []
+        self.gt_blur_paths = []
 
         images_dir = os.path.join(root, "images")
         gt_dir = os.path.join(root, "ground-truth")
@@ -222,17 +231,33 @@ class CrowdDataset(Dataset):
                 base, _ = os.path.splitext(fname)
 
                 gt_path = None
+                gt_blur_path = None
                 for ext in gt_extensions:
                     candidate = os.path.join(gt_dir,base + ext)
+                    blur_candidate = os.path.join(gt_dir,base + "_blur"+ ext)
+
                     if os.path.exists(candidate):
                         gt_path = candidate
+                    if os.path.exists(blur_candidate):
+                        gt_blur_path = blur_candidate
+
+                    if gt_path and gt_blur_path:
                         break
+
                 if gt_path is None:
                     print(
                         f"Warning: Ground truth for {fname} not found. Skipping.")
                     continue
+
+                if gt_blur_path is None:
+                    print(
+                        f"Warning: Ground truth for {fname} not found. Skipping.")
+                    continue
+
                 self.image_paths.append(image_path)
                 self.gt_paths.append(gt_path)
+                self.gt_blur_paths.append(gt_blur_path)
+
 
         print(
             f"Found {len(self.image_paths)} images with ground truth in {root}")
@@ -243,16 +268,23 @@ class CrowdDataset(Dataset):
     def __getitem__(self, idx):
         img_path = self.image_paths[idx]
         gt_path = self.gt_paths[idx]
+        gt_blur_path = self.gt_blur_paths[idx]
         
         image = Image.open(img_path).convert("RGB")
         
         gt_np = np.load(gt_path)  # This should be a 2D array of shape [H, W] with binary values.
+        gt_blur_np = np.load(gt_blur_path)  # This should be a 2D array of shape [H, W] with binary values.
+
         gt = torch.from_numpy(gt_np).float()
+        gt_blur = torch.from_numpy(gt_blur_np).float()
 
         if gt.dim() == 2:
             gt = gt.unsqueeze(0)
+
+        if gt_blur.dim() == 2:
+            gt_blur = gt_blur.unsqueeze(0)
         
         if self.transform:
             image = self.transform(image)
         
-        return image, gt
+        return image, gt, gt_blur

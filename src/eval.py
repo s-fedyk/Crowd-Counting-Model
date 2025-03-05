@@ -99,7 +99,7 @@ def parse_args():
                       help='CLIP model variant to use')
     parser.add_argument('--eval-path', type=str, default='ShanghaiTech/part_B/test_data',
                       help='Input evaluation directory')
-    parser.add_argument('--checkpoint-path', type=str, default='experiments/best_checkpoint.pth.tar',
+    parser.add_argument('--checkpoint-path', type=str, default='experiments/save.pth.tar',
                       help='Path of model to evaluate')
 
 
@@ -124,7 +124,7 @@ if __name__ == "__main__":
     total_images = 0
     model.eval()
 
-    for images, gt_maps in eval_dataloader:
+    for images, gt_maps, gt_blurred_maps in eval_dataloader:
         images = images.to(device)
         gt_maps = gt_maps.to(device)
         pred_map = model(images)
@@ -135,6 +135,7 @@ if __name__ == "__main__":
 
         total_abs_error += torch.sum(torch.abs(pred_count - gt_count)).item()
         total_images += images.size(0)
+    print(f"MAE IS {total_abs_error/total_images}")
 
 
 
