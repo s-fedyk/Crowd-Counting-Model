@@ -72,7 +72,7 @@ def parse_args():
                       help='CLIP model variant to use')
     parser.add_argument('--eval-path', type=str, default='ShanghaiTech/part_B/test_data',
                       help='Input evaluation directory')
-    parser.add_argument('--train-path', type=str, default='ShanghaiTech/part_A/train_data',
+    parser.add_argument('--train-path', type=str, default='ShanghaiTech/part_B/train_data',
                       help='Input train directory')
 
 
