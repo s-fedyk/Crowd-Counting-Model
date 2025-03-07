@@ -74,10 +74,8 @@ class CrowdCountingLoss(nn.Module):
         count_loss = F.l1_loss(pred_count, gt_count)
         density_loss = F.mse_loss(pred_map,gt_map)
 
-        spatial_loss = self.sinkhorn_divergence_from_maps(pred_map, gt_blur_map)
-        
+        spatial_loss = self.sinkhorn(pred_map, gt_blur_map)
         return density_loss + count_loss + self.alpha * spatial_loss
-
 
 class PatchReconstructionLoss(nn.Module):
     def __init__(self):
