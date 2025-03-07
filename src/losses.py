@@ -16,10 +16,10 @@ class CrowdCountingLoss(nn.Module):
         self.sinkhorn = SamplesLoss(
             loss="sinkhorn", 
             p=2,
-            backend="online",
+            backend="auto",
             blur=sinkhorn_blur,  
-            scaling=0.9,
-            reach=0.1  
+            scaling=0.1,
+            reach=0.5  
         )
 
     def sinkhorn_divergence_from_maps(self, pred_map, gt_map):
@@ -74,8 +74,7 @@ class CrowdCountingLoss(nn.Module):
         count_loss = F.l1_loss(pred_count, gt_count)
         density_loss = F.mse_loss(pred_map,gt_map)
 
-        spatial_loss = self.sinkhorn_divergence_from_maps(pred_map, gt_map)
-        print(count_loss, density_loss, spatial_loss)
+        spatial_loss = self.sinkhorn_divergence_from_maps(pred_map, gt_blur_map)
         
         return density_loss + count_loss + self.alpha * spatial_loss
 
