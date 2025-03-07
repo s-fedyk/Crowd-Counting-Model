@@ -138,8 +138,6 @@ if __name__ == "__main__":
                 pred_patches.append(pred)
 
             pred_map = torch.cat(pred_patches, dim=0)
-            # Now, reassemble the predicted patches back into a full prediction map.
-            # Assume you know the original shape (e.g., H_full, W_full) and patch parameters.
             pred_map = pred_map.squeeze(1)
 
             full_pred_map = reassemble_from_patches(
@@ -150,9 +148,9 @@ if __name__ == "__main__":
                                 horizontal_overlap=0.5
                             )
 
-
             # Compute loss against the full ground truth (or an appropriately reassembled GT map)
             loss = loss_fn(full_pred_map, gt_tensor, gt_blur_tensor)
+            print(loss)
             loss.backward()
             optimizer.step()
 
