@@ -7,6 +7,7 @@ import argparse
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
+from datasets import reassemble_from_patches
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
@@ -99,8 +100,8 @@ if __name__ == "__main__":
         preprocess(input_train_path, processed_train_path)
 
     # Training dataset
-    train_dataset = CrowdDataset(root=processed_train_path, transform=img_transforms)
-    dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
+    train_dataset = CrowdDataset(root=processed_train_path, patch_transform=img_transforms)
+    dataloader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=4)
 
     # Eval dataset
     input_eval_path = f"./data/{args.eval_path}"
@@ -108,7 +109,7 @@ if __name__ == "__main__":
     if not os.path.exists(processed_eval_path):
         preprocess(input_eval_path, processed_eval_path)
 
-    eval_dataset = CrowdDataset(root=processed_eval_path, transform=img_transforms)
+    eval_dataset = CrowdDataset(root=processed_eval_path, patch_transform=img_transforms)
     eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
     loss_fn = CrowdCountingLoss()
@@ -120,16 +121,43 @@ if __name__ == "__main__":
     num_epochs = args.epochs
     for epoch in range(num_epochs):
         running_loss = 0.0
-        for images, gt_maps, gt_blur_maps in tqdm(dataloader, desc="Epoch Progress"):
-            images = images.to(device)    # [B, 3, 224, 224]
-            gt_maps = gt_maps.to(device)    # [B, 1, 224, 224]
-            gt_blur_maps = gt_blur_maps.to(device)    # [B, 1, 224, 224]
+        for full_img, patch_tensor, gt_tensor, gt_blur_tensor, in tqdm(dataloader, desc="Epoch Progress"):
 
-            optimizer.zero_grad()
-            pred_map = clipgcc_model(images)  # [B, 1, 224, 224]
-            loss = loss_fn(pred_map, gt_maps, gt_blur_maps)
+            # Process patches in smaller mini-batches:
+            print(full_img.shape)
+
+            patch_tensor = patch_tensor.to(device)
+            gt_tensor = gt_tensor.to(device)
+            gt_blur_tensor = gt_blur_tensor.to(device)
+
+            mini_batch_size = 8  # Adjust based on your GPU memory
+            pred_patches = []
+            patch_tensor = patch_tensor.squeeze(0)
+
+            print(patch_tensor.shape)
+
+            for mini_batch in torch.split(patch_tensor, mini_batch_size,0):
+                pred = clipgcc_model(mini_batch)
+                pred_patches.append(pred)
+
+            pred_map = torch.cat(pred_patches, dim=0)
+            # Now, reassemble the predicted patches back into a full prediction map.
+            # Assume you know the original shape (e.g., H_full, W_full) and patch parameters.
+            pred_map = pred_map.squeeze(1)
+            print(pred_map.shape)
+
+            full_pred_map = reassemble_from_patches(
+                                pred_map,
+                                original_shape=(full_img.shape[2],full_img.shape[3]),  # adjust channels as needed
+                                patch_size=(224, 224),
+                                vertical_overlap=0.5,
+                                horizontal_overlap=0.5
+                            )
+
+
+            # Compute loss against the full ground truth (or an appropriately reassembled GT map)
+            loss = loss_fn(full_pred_map, gt_tensor, gt_blur_tensor)
             loss.backward()
-
             optimizer.step()
 
             running_loss += loss.item()

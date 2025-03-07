@@ -1,3 +1,4 @@
+
 import logging
 import os
 from torch.utils.tensorboard import SummaryWriter
@@ -13,6 +14,7 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import numpy as np
 
+from CLIP import transform
 from CLIPGCC import CLIPGCC
 from losses import CrowdCountingLoss
 
@@ -116,26 +118,42 @@ if __name__ == "__main__":
     if not os.path.exists(processed_eval_path):
         preprocess(input_eval_path, processed_eval_path)
 
-    eval_dataset = CrowdDataset(root=processed_eval_path, transform=transforms)
-    eval_dataloader = DataLoader(eval_dataset, batch_size=4, shuffle=False, num_workers=4)
+    print("===LOADING DATASET===")
+    eval_dataset = CrowdDataset(root=processed_eval_path, patch_transform=transforms)
+    eval_dataloader = DataLoader(eval_dataset, batch_size=1, shuffle=False, num_workers=4)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     total_abs_error = 0
+    total_mape = 0
     total_images = 0
+    epsilon = 1e-6  # small constant to avoid division by zero
     model.eval()
+    model = model.to(device)
 
-    for images, gt_maps, gt_blurred_maps in eval_dataloader:
-        images = images.to(device)
-        gt_maps = gt_maps.to(device)
-        pred_map = model(images)
-        plot_sample(images[0], gt_maps[0], pred_map[0]).show()
+    # each iteration is for 1 image. An image has patches 
+    # [image, image patches, gt_patches, gt_blur_patches]
+    for batched_full_image, batched_image_patches, batched_gt_patches, _ in eval_dataloader:
+        batched_image_patches = batched_image_patches.to(device)
+        batched_gt_patches = batched_gt_patches.to(device)
+        
+        pred_maps = model(batched_image_patches.view(-1, *batched_image_patches.shape[-3:]))
+        
+        pred_counts = pred_maps.sum(dim=[1,2,3]).view(batched_image_patches.shape[0], -1).sum(dim=1)
+        gt_counts = batched_gt_patches.sum(dim=[2,3,4]).squeeze(-1).sum(dim=1)
+        
+        # Calculate absolute errors for whole images
+        batch_abs_error = torch.abs(pred_counts - gt_counts).sum().item()
+        total_abs_error += batch_abs_error
+        
+        # Calculate MAPE for each image and sum them up
+        batch_mape = (torch.abs(pred_counts - gt_counts) / (gt_counts + epsilon)).sum().item()
+        total_mape += batch_mape
+        
+        total_images += batched_image_patches.size(0)  # Add actual number of images
+        print(f"MAE: {total_abs_error/total_images:.2f} | MAPE: {(total_mape/total_images)*100:.2f}%")
 
-        pred_count = pred_map.sum(dim=[1,2,3])
-        gt_count = gt_maps.sum(dim=[1,2,3])
-
-        total_abs_error += torch.sum(torch.abs(pred_count - gt_count)).item()
-        total_images += images.size(0)
-    print(f"MAE IS {total_abs_error/total_images}")
-
-
+    print(f"Total Images Evaluated: {total_images}")
+    print(f"Final MAE: {total_abs_error/total_images:.2f}")
+    print(f"Final MAPE: {(total_mape/total_images)*100:.2f}%")
 
