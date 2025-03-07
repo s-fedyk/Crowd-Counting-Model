@@ -9,7 +9,7 @@ from geomloss import SamplesLoss
 
 
 class CrowdCountingLoss(nn.Module):
-    def __init__(self, alpha=0.1, sinkhorn_blur=0.2, density_scale=10):  # Increased blur
+    def __init__(self, alpha=1, sinkhorn_blur=0.2, density_scale=10):  # Increased blur
         super().__init__()
         self.alpha = alpha
         self.density_scale = density_scale
