@@ -110,16 +110,17 @@ if __name__ == "__main__":
         preprocess(input_eval_path, processed_eval_path)
 
     eval_dataset = CrowdDataset(root=processed_eval_path, patch_transform=img_transforms)
-    eval_dataloader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
+    eval_dataloader = DataLoader(eval_dataset, batch_size=1, shuffle=False, num_workers=4)
 
     loss_fn = CrowdCountingLoss()
     optimizer = optim.Adam(clipgcc_model.parameters(), lr=args.lr, weight_decay = 1e-4)
     best_eval_mae = float('inf')
 
     writer = SummaryWriter()
-
+    
     num_epochs = args.epochs
     for epoch in range(num_epochs):
+        """
         running_loss = 0.0
         for full_img, patch_tensor, gt_tensor, gt_blur_tensor, in tqdm(dataloader, desc="Epoch Progress"):
 
@@ -154,9 +155,13 @@ if __name__ == "__main__":
 
             running_loss += loss.item()
 
+
+
         avg_loss = running_loss / len(dataloader)
         print(f"Epoch [{epoch+1}/{num_epochs}] Loss: {avg_loss:.4f}")
         writer.add_scalar('Loss/train', avg_loss, epoch)
+        """
+
 
         #if ((epoch+1) % args.save_interval == 0):
         #kj   save_checkpoint(clipgcc_model, optimizer, epoch+1, args.log_dir)
@@ -166,17 +171,37 @@ if __name__ == "__main__":
             total_abs_error = 0.0
             total_images = 0
             with torch.no_grad():
-                for images, gt_maps,_ in eval_dataloader:
-                    images = images.to(device)
-                    gt_maps = gt_maps.to(device)
-                    pred_map = clipgcc_model(images)
-                    
-                    pred_count = pred_map.sum(dim=[1,2,3])
-                    gt_count = gt_maps.sum(dim=[1,2,3])
+                for i,(full_img, patch_tensor, gt_tensor, gt_blur_tensor) in enumerate(eval_dataloader):
+                            # Process patches in smaller mini-batches:
+                            patch_tensor = patch_tensor.to(device)
+                            gt_tensor = gt_tensor.to(device)
+                            gt_blur_tensor = gt_blur_tensor.to(device)
 
-                    total_abs_error += torch.sum(torch.abs(pred_count - gt_count)).item()
-                    total_images += images.size(0)
+                            mini_batch_size = 8  # Adjust based on your GPU memory
+                            pred_patches = []
+                            patch_tensor = patch_tensor.squeeze(0)
 
+                            for mini_batch in torch.split(patch_tensor, mini_batch_size,0):
+                                pred = clipgcc_model(mini_batch)
+                                pred_patches.append(pred)
+
+                            pred_map = torch.cat(pred_patches, dim=0)
+                            pred_map = pred_map.squeeze(1)
+
+                            full_pred_map = reassemble_from_patches(
+                                                pred_map,
+                                                original_shape=(full_img.shape[2],full_img.shape[3]),  # adjust channels as needed
+                                                patch_size=(224, 224),
+                                                vertical_overlap=0.5,
+                                                horizontal_overlap=0.5
+                                            )
+
+                            pred_count = full_pred_map.sum(dim=[0,1])
+                            gt_count = gt_tensor.sum(dim=[1,2,3])
+
+                            total_abs_error += torch.sum(torch.abs(pred_count - gt_count)).item()
+                            total_images += 1
+                            plot_sample(full_img[0], gt_tensor[0], full_pred_map).savefig(f"{args.log_dir}/img-{i}")
             mae = total_abs_error / total_images
 
             if mae < best_eval_mae:
@@ -185,16 +210,6 @@ if __name__ == "__main__":
 
             print(f"Epoch [{epoch+1}/{num_epochs}] Evaluation MAE: {mae:.2f}")
             writer.add_scalar('mae/test', mae, epoch)
-
-            clipgcc_model.eval()
-            with torch.no_grad():
-                for i in range(10):
-                    image, gt_map,_ = eval_dataset[i]
-                    image_tensor = image.unsqueeze(0).to(device) 
-                    pred_map = clipgcc_model(image_tensor)
-                    plot_sample(image, gt_map, pred_map).savefig(f"{args.log_dir}/img-{i}")
-                    logging.info(f"Epoch {epoch+1}: Sample {i+1} predicted count: {pred_map.sum().item():.2f}, real count: {gt_map.sum().item():.2f}")
-                    print(f"Epoch {epoch+1}: Sample {i+1} predicted count: {pred_map.sum().item():.2f}, real count: {gt_map.sum().item():.2f}")
             clipgcc_model.train()
         # Switch back to train mode.
         clipgcc_model.train()

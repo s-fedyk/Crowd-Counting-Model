@@ -21,49 +21,51 @@ from losses import CrowdCountingLoss
 from CLIP.factory import create_model_from_pretrained
 from datasets import CrowdDataset, preprocess
 
-def plot_sample(image, gt_map, pred_map):
+def plot_sample(image: torch.Tensor, gt_map: torch.Tensor, pred_map: torch.Tensor):
     """
-    Plots the original image with overlayed ground truth and predicted points.
+    Plots the original image along with the ground truth and predicted density maps.
     
     Args:
-        image (torch.Tensor): Image tensor of shape [C, H, W].
-        gt_map (torch.Tensor): Ground truth binary point map of shape [1, H, W].
-        pred_map (torch.Tensor): Predicted binary point map of shape [1, H, W].
+        image (torch.Tensor): Image tensor of shape [C, H, W]. Assumed to be a float tensor
+                              (e.g. normalized to [0,1] or [0,255]) already on the CPU or moved via .cpu().
+        gt_map (torch.Tensor): Ground truth density map of shape [1, H, W].
+        pred_map (torch.Tensor): Predicted density map of shape [1, H, W].
+    
+    Returns:
+        matplotlib.figure.Figure: Figure containing the three subplots.
     """
-    image_np = image.permute(1, 2, 0).cpu().numpy()
-    gt_density = gt_map.squeeze().cpu().detach().numpy()
-    pred_density = pred_map.squeeze().cpu().detach().numpy()
+    # Convert tensors to NumPy arrays for plotting.
+    # Permute the image tensor from [C, H, W] to [H, W, C].
+    image_np = image.cpu().detach().permute(1, 2, 0).numpy()
+    gt_density = gt_map.cpu().detach().squeeze().numpy()   # Shape [H, W]
+    pred_density = pred_map.cpu().detach().squeeze().numpy()  # Shape [H, W]
 
-    # Calculate counts
+    # Calculate counts by summing density values.
     gt_count = gt_density.sum()
     pred_count = pred_density.sum()
 
-    # Create figure
-    plt.figure(figsize=(18, 6))
+    # Create a figure with three subplots.
+    fig, axs = plt.subplots(1, 3, figsize=(18, 6))
 
-    # Plot original image
-    plt.subplot(1, 3, 1)
-    plt.imshow(image_np)
-    plt.title("Original Image")
-    plt.axis("off")
+    # Plot the original image.
+    axs[0].imshow(image_np.astype('uint8') if image_np.max() > 1 else image_np)
+    axs[0].set_title("Original Image")
+    axs[0].axis("off")
 
-    # Plot ground truth density map
-    plt.subplot(1, 3, 2)
-    plt.imshow(gt_density, cmap='jet')
-    plt.colorbar(fraction=0.046, pad=0.04)
-    plt.title(f"Ground Truth Density Map\nCount: {gt_count:.1f}")
-    plt.axis("off")
+    # Plot the ground truth density map.
+    im1 = axs[1].imshow(gt_density, cmap='jet')
+    fig.colorbar(im1, ax=axs[1], fraction=0.046, pad=0.04)
+    axs[1].set_title(f"Ground Truth Density Map\nCount: {gt_count:.1f}")
+    axs[1].axis("off")
 
-    # Plot predicted density map
-    plt.subplot(1, 3, 3)
-    plt.imshow(pred_density, cmap='jet')
-    plt.colorbar(fraction=0.046, pad=0.04)
-    plt.title(f"Predicted Density Map\nCount: {pred_count:.1f}")
-    plt.axis("off")
+    # Plot the predicted density map.
+    im2 = axs[2].imshow(pred_density, cmap='jet')
+    fig.colorbar(im2, ax=axs[2], fraction=0.046, pad=0.04)
+    axs[2].set_title(f"Predicted Density Map\nCount: {pred_count:.1f}")
+    axs[2].axis("off")
 
     plt.tight_layout()
-    return plt
-
+    return fig
 
 def load_model_for_eval(checkpoint_path, clip_model_type='ViT-B/32', device='cuda'):
     """
@@ -136,7 +138,7 @@ if __name__ == "__main__":
     for batched_full_image, batched_image_patches, batched_gt_patches, _ in eval_dataloader:
         batched_image_patches = batched_image_patches.to(device)
         batched_gt_patches = batched_gt_patches.to(device)
-        
+
         pred_maps = model(batched_image_patches.view(-1, *batched_image_patches.shape[-3:]))
         
         pred_counts = pred_maps.sum(dim=[1,2,3]).view(batched_image_patches.shape[0], -1).sum(dim=1)
