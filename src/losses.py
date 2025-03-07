@@ -69,6 +69,7 @@ class CrowdCountingLoss(nn.Module):
         # Scale counts appropriately
         pred_count = pred_map.sum(dim=[0,1])
         gt_count = gt_map.sum(dim=[0,1])
+
         
         count_loss = F.l1_loss(pred_count, gt_count)
         density_loss = F.mse_loss(pred_map,gt_map)

@@ -141,7 +141,7 @@ def reassemble_from_patches(patches, original_shape, patch_size, vertical_overla
     if len(original_shape) == 3:
         # Expand count_map to divide each channel.
         count_map = count_map.unsqueeze(0)  # shape becomes [1, H, W]
-    reassembled = accumulator / count_map
+    reassembled = accumulator / (count_map + 1e-6)
 
     return reassembled
 

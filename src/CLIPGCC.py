@@ -119,7 +119,7 @@ class HeadPointRegressor(nn.Module):
         # find out where the points are
         x = self.decoder1(x)
         
-        return torch.relu(x)
+        return torch.sigmoid(x)
 
 
 def reshape_tokens_to_grid(tokens):

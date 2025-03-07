@@ -150,7 +150,6 @@ if __name__ == "__main__":
 
             # Compute loss against the full ground truth (or an appropriately reassembled GT map)
             loss = loss_fn(full_pred_map, gt_tensor, gt_blur_tensor)
-            print(loss)
             loss.backward()
             optimizer.step()
 
