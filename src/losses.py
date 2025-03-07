@@ -61,26 +61,17 @@ class CrowdCountingLoss(nn.Module):
 
     def forward(self, pred_map, gt_map, gt_blur_map):
         # Add density map reconstruction loss
-
-
         gt_map = gt_map.squeeze(0).squeeze(0)
         gt_blur_map = gt_blur_map.squeeze(0).squeeze(0)
 
         density_loss = F.mse_loss(pred_map, gt_blur_map)
 
-        print("pred", pred_map.shape)
-        print("gt", gt_map.shape) 
-        print("blur", gt_blur_map.shape)
-        
         # Scale counts appropriately
         pred_count = pred_map.sum(dim=[0,1])
         gt_count = gt_map.sum(dim=[0,1])
         
         count_loss = F.l1_loss(pred_count, gt_count)
         density_loss = F.mse_loss(pred_map,gt_map)
-
-        print(pred_map.shape)
-        print(gt_map.shape)
 
         spatial_loss = self.sinkhorn_divergence_from_maps(pred_map, gt_map)
         

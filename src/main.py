@@ -124,7 +124,6 @@ if __name__ == "__main__":
         for full_img, patch_tensor, gt_tensor, gt_blur_tensor, in tqdm(dataloader, desc="Epoch Progress"):
 
             # Process patches in smaller mini-batches:
-            print(full_img.shape)
 
             patch_tensor = patch_tensor.to(device)
             gt_tensor = gt_tensor.to(device)
@@ -134,8 +133,6 @@ if __name__ == "__main__":
             pred_patches = []
             patch_tensor = patch_tensor.squeeze(0)
 
-            print(patch_tensor.shape)
-
             for mini_batch in torch.split(patch_tensor, mini_batch_size,0):
                 pred = clipgcc_model(mini_batch)
                 pred_patches.append(pred)
@@ -144,7 +141,6 @@ if __name__ == "__main__":
             # Now, reassemble the predicted patches back into a full prediction map.
             # Assume you know the original shape (e.g., H_full, W_full) and patch parameters.
             pred_map = pred_map.squeeze(1)
-            print(pred_map.shape)
 
             full_pred_map = reassemble_from_patches(
                                 pred_map,
