@@ -120,7 +120,6 @@ if __name__ == "__main__":
     
     num_epochs = args.epochs
     for epoch in range(num_epochs):
-        """
         running_loss = 0.0
         for full_img, patch_tensor, gt_tensor, gt_blur_tensor, in tqdm(dataloader, desc="Epoch Progress"):
 
@@ -160,7 +159,6 @@ if __name__ == "__main__":
         avg_loss = running_loss / len(dataloader)
         print(f"Epoch [{epoch+1}/{num_epochs}] Loss: {avg_loss:.4f}")
         writer.add_scalar('Loss/train', avg_loss, epoch)
-        """
 
 
         #if ((epoch+1) % args.save_interval == 0):
