@@ -7,7 +7,7 @@ import argparse
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
-from datasets import reassemble_from_patches
+from datasets import reassemble_from_patches, split_into_patches
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
@@ -117,10 +117,11 @@ if __name__ == "__main__":
     best_eval_mae = float('inf')
 
     writer = SummaryWriter()
-    
+
     num_epochs = args.epochs
     for epoch in range(num_epochs):
         running_loss = 0.0
+
         for full_img, patch_tensor, gt_tensor, gt_blur_tensor, in tqdm(dataloader, desc="Epoch Progress"):
 
             # Process patches in smaller mini-batches:
@@ -141,7 +142,7 @@ if __name__ == "__main__":
 
             full_pred_map = reassemble_from_patches(
                                 pred_map,
-                                original_shape=(full_img.shape[2],full_img.shape[3]),  # adjust channels as needed
+                                original_shape=(full_img.shape[2],full_img.shape[3]),  
                                 patch_size=(224, 224),
                                 vertical_overlap=0.5,
                                 horizontal_overlap=0.5
@@ -187,12 +188,12 @@ if __name__ == "__main__":
                             pred_map = pred_map.squeeze(1)
 
                             full_pred_map = reassemble_from_patches(
-                                                pred_map,
-                                                original_shape=(full_img.shape[2],full_img.shape[3]),  # adjust channels as needed
-                                                patch_size=(224, 224),
-                                                vertical_overlap=0.5,
-                                                horizontal_overlap=0.5
-                                            )
+                                    pred_map,
+                                    original_shape=(full_img.shape[2], full_img.shape[3]),
+                                    patch_size=(224, 224),
+                                    vertical_overlap=0.5,
+                                    horizontal_overlap=0.5
+                                )
 
                             pred_count = full_pred_map.sum(dim=[0,1])
                             gt_count = gt_tensor.sum(dim=[1,2,3])

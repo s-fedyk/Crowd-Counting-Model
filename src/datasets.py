@@ -95,59 +95,51 @@ def load_gt_from_mat(gt_path, original_size):
 
 def reassemble_from_patches(patches, original_shape, patch_size, vertical_overlap=0.5, horizontal_overlap=0.5):
     """
-    Reassembles a list of PyTorch tensor patches back into a full tensor of the original shape.
-    In overlapping areas, the patch values are averaged.
-
-    Args:
-        patches (list of torch.Tensor): List of patches, each of shape [C, ph, pw] or [ph, pw] for grayscale.
-        original_shape (tuple): Original image shape. For color images, (C, H, W); for grayscale, (H, W).
-        patch_size (tuple): The height and width of each patch: (ph, pw).
-        vertical_overlap (float): Fraction of patch height overlapping vertically (default 0.5).
-        horizontal_overlap (float): Fraction of patch width overlapping horizontally (default 0.5).
-
-    Returns:
-        torch.Tensor: Reassembled tensor of shape `original_shape`.
+    Reassembles patches into the original image shape, considering padding and averaging overlaps.
     """
-    # Determine if the image has channels
-    if len(original_shape) == 3:
-        C, H, W = original_shape
-        accumulator = torch.zeros(original_shape, dtype=patches[0].dtype, device=patches[0].device)
-        count_map = torch.zeros((H, W), dtype=torch.float32, device=patches[0].device)
-    else:
-        H, W = original_shape
-        accumulator = torch.zeros(original_shape, dtype=patches[0].dtype, device=patches[0].device)
-        count_map = torch.zeros((H, W), dtype=torch.float32, device=patches[0].device)
-
+    H, W = original_shape
     ph, pw = patch_size
-    # Compute strides with at least a stride of 1
+
+    # Calculate stride sizes
+    v_stride = max(int(ph * (1 - vertical_overlap)), 1)
+    h_stride = max(int(pw * (1 - horizontal_overlap)), 1)
+
+    pad_h = (v_stride - (H - ph) % v_stride) % v_stride if (H - ph) % v_stride != 0 else 0
+    pad_w = (h_stride - (W - pw) % h_stride) % h_stride if (W - pw) % h_stride != 0 else 0
+
+    if len(original_shape) == 3:
+        C, H_orig, W_orig = original_shape
+        accumulator = torch.zeros((C, H + pad_h, W + pad_w), dtype=patches[0].dtype, device=patches[0].device)
+    else:
+        accumulator = torch.zeros((H + pad_h, W + pad_w), dtype=patches[0].dtype, device=patches[0].device)
+    
+    count_map = torch.zeros((H + pad_h, W + pad_w), dtype=torch.float32, device=patches[0].device)
+
     v_stride = max(int(ph * (1 - vertical_overlap)), 1)
     h_stride = max(int(pw * (1 - horizontal_overlap)), 1)
 
     patch_index = 0
-    # Iterate over the starting positions that would have been used during patch extraction.
-    for i in range(0, H - ph + 1, v_stride):
-        for j in range(0, W - pw + 1, h_stride):
+    for i in range(0, (H + pad_h) - ph + 1, v_stride):
+        for j in range(0, (W + pad_w) - pw + 1, h_stride):
             patch = patches[patch_index]
             if len(original_shape) == 3:
-                # patch assumed to be [C, ph, pw]
                 accumulator[:, i:i+ph, j:j+pw] += patch
             else:
-                # patch assumed to be [ph, pw]
                 accumulator[i:i+ph, j:j+pw] += patch
             count_map[i:i+ph, j:j+pw] += 1
             patch_index += 1
 
-    # Average the accumulated values in overlapping regions.
-    if len(original_shape) == 3:
-        # Expand count_map to divide each channel.
-        count_map = count_map.unsqueeze(0)  # shape becomes [1, H, W]
     reassembled = accumulator / (count_map + 1e-6)
-
-    return reassembled
+    
+    if len(original_shape) == 3:
+        return reassembled[:, :H, :W]
+    else:
+        return reassembled[:H, :W]
 
 def split_into_patches(arr, patch_size, vertical_overlap=0.5, horizontal_overlap=0.5):
     """
     Splits a NumPy array (an image or ground truth) into patches with vertical and horizontal overlap.
+    Adds padding if necessary to ensure all pixels are covered with overlapping patches.
     
     Args:
         arr (np.array): Array of shape (H, W, C) for images or (H, W) for GT.
@@ -156,24 +148,32 @@ def split_into_patches(arr, patch_size, vertical_overlap=0.5, horizontal_overlap
         horizontal_overlap (float): Fraction of the patch width that overlaps with the next patch horizontally.
     Returns:
         patches (list): List of patches as NumPy arrays.
+        original_shape (tuple): Original dimensions (H, W).
+        padding (tuple): Amount of padding added (pad_h, pad_w).
     """
-    patches = []
     H, W = arr.shape[:2]
     ph, pw = patch_size
 
-    # Calculate strides ensuring at least a stride of 1
-    v_stride = int(ph * (1 - vertical_overlap))
-    if v_stride < 1:
-        v_stride = 1
-    h_stride = int(pw * (1 - horizontal_overlap))
-    if h_stride < 1:
-        h_stride = 1
+    # Calculate stride sizes
+    v_stride = max(int(ph * (1 - vertical_overlap)), 1)
+    h_stride = max(int(pw * (1 - horizontal_overlap)), 1)
 
-    for i in range(0, H - ph + 1, v_stride):
-        for j in range(0, W - pw + 1, h_stride):
-            patch = arr[i:i+ph, j:j+pw]
+    # Calculate required padding to make (H - ph) and (W - pw) divisible by their respective strides
+    pad_h = (v_stride - (H - ph) % v_stride) % v_stride if (H - ph) % v_stride != 0 else 0
+    pad_w = (h_stride - (W - pw) % h_stride) % h_stride if (W - pw) % h_stride != 0 else 0
+
+    # Apply padding to the image (symmetric padding for better edge handling)
+    padded_arr = np.pad(arr, ((0, pad_h), (0, pad_w)), mode='reflect')
+    H_padded, W_padded = padded_arr.shape[:2]
+
+    # Generate patches from the padded array
+    patches = []
+    for i in range(0, H_padded - ph + 1, v_stride):
+        for j in range(0, W_padded - pw + 1, h_stride):
+            patch = padded_arr[i:i+ph, j:j+pw]
             patches.append(patch)
-    return patches
+    
+    return patches, (H, W), (pad_h, pad_w)
 
 def preprocess(root, processed_dir, patch_size=(224,224),
                image_extensions=('.jpg', '.jpeg', '.png'),
@@ -221,8 +221,7 @@ def preprocess(root, processed_dir, patch_size=(224,224),
         blur_gt_map = gaussian_filter(gt_map, sigma=1)
         
         # Split into patches
-        image_patches = split_into_patches(image_np, patch_size, 0.5, 0.5)
-        
+        image_patches, _, _ = split_into_patches(image_np, patch_size, 0.5, 0.5)        
         # Save patches
         for idx, img_patch in enumerate(image_patches):
             patch_img = Image.fromarray(img_patch)
