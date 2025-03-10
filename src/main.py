@@ -210,8 +210,9 @@ if __name__ == "__main__":
                     total_abs_error += torch.sum(
                         torch.abs(pred_count - gt_count)).item()
                     total_images += 1
-                    plot_sample(full_img[0], gt_tensor[0], full_pred_map).savefig(
-                        f"{args.log_dir}/img-{i}")
+                    if (i <= 10):
+                        plot_sample(full_img[0], gt_tensor[0], full_pred_map).savefig(
+                            f"{args.log_dir}/img-{i}")
             mae = total_abs_error / total_images
 
             if mae < best_eval_mae:
