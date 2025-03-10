@@ -65,7 +65,7 @@ def parse_args():
                       help='Directory to save logs and checkpoints')
     parser.add_argument('--save-interval', type=int, default=5,
                       help='Save checkpoint every N epochs')
-    parser.add_argument('--eval-interval', type=int, default=5,
+    parser.add_argument('--eval-interval', type=int, default=10,
                       help='Run evaluation every N epochs')
     parser.add_argument('--clip-model', type=str, default='ViT-B/32',
                       choices=['ViT-B/32', 'ViT-B/16'],
