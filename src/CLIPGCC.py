@@ -111,6 +111,7 @@ class HeadPointRegressor(nn.Module):
             nn.Dropout(dropout),
             nn.Conv2d(64, 1, 1),
             nn.ReLU(),
+            IFA(1),
         )
         
         
