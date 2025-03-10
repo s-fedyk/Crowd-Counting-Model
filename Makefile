@@ -9,5 +9,4 @@ tensorboard:
 shtech:
 	python3 src/shtech.py
 clean:
-	- rm -rf runs/*
-	- rm -rf experiments/*
+	rm -rf processed/*

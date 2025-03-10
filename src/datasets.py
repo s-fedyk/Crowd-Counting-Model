@@ -4,6 +4,7 @@ import scipy.io
 from tqdm import tqdm
 from PIL import Image
 import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter
 
 import torch
 import torch.nn as nn
@@ -11,6 +12,8 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from torchvision import transforms
+
+from CLIP import transform
 
 """
 For verification.
@@ -90,52 +93,127 @@ def load_gt_from_mat(gt_path, original_size):
     point_map = points_to_point_map(points, orig_shape)
     return point_map
 
-def split_into_patches(arr, patch_size):
+def reassemble_from_patches(patches, original_shape, patch_size, vertical_overlap=0.5, horizontal_overlap=0.5):
     """
-    Splits a NumPy array (an image or ground truth) into non-overlapping patches.
+    Reassembles patches into original image shape with channel support.
+    Handles both 2D (H, W) and 3D (C, H, W) tensors.
+    """
+    # Extract dimensions based on input shape
+    if len(original_shape) == 3:
+        # Channel-first format (C, H, W)
+        C, H, W = original_shape
+        channel_axis = 0
+    else:
+        # 2D format (H, W)
+        H, W = original_shape
+        C = None
+        channel_axis = None
+
+    ph, pw = patch_size
+
+    # Calculate strides and padding
+    v_stride = max(int(ph * (1 - vertical_overlap)), 1)
+    h_stride = max(int(pw * (1 - horizontal_overlap)), 1)
+
+    # Calculate required padding for spatial dimensions
+    pad_h = (v_stride - (H - ph) % v_stride) % v_stride if (H - ph) % v_stride != 0 else 0
+    pad_w = (h_stride - (W - pw) % h_stride) % h_stride if (W - pw) % h_stride != 0 else 0
+
+    # Create accumulator with proper dimensions
+    if C is not None:
+        accumulator = torch.zeros((C, H + pad_h, W + pad_w), 
+                                dtype=patches[0].dtype, 
+                                device=patches[0].device)
+    else:
+        accumulator = torch.zeros((H + pad_h, W + pad_w),
+                                dtype=patches[0].dtype,
+                                device=patches[0].device)
+
+    count_map = torch.zeros((H + pad_h, W + pad_w), 
+                          dtype=torch.float32,
+                          device=patches[0].device)
+
+    patch_index = 0
+    for i in range(0, (H + pad_h) - ph + 1, v_stride):
+        for j in range(0, (W + pad_w) - pw + 1, h_stride):
+            current_patch = patches[patch_index]
+            
+            if C is not None:
+                # Handle 3D tensor with channels
+                accumulator[:, i:i+ph, j:j+pw] += current_patch
+            else:
+                # Handle 2D tensor
+                accumulator[i:i+ph, j:j+pw] += current_patch
+                
+            count_map[i:i+ph, j:j+pw] += 1
+            patch_index += 1
+
+    # Normalize by overlap count and crop padding
+    reassembled = accumulator / (count_map + 1e-6)
+    
+    if C is not None:
+        return reassembled[:, :H, :W]  # Crop to original spatial dimensions
+    else:
+        return reassembled[:H, :W]
+def split_into_patches(arr, patch_size, vertical_overlap=0.5, horizontal_overlap=0.5):
+    """
+    Splits a NumPy array (an image or ground truth) into patches with vertical and horizontal overlap.
+    Adds padding if necessary to ensure all pixels are covered with overlapping patches.
     
     Args:
         arr (np.array): Array of shape (H, W, C) for images or (H, W) for GT.
         patch_size (tuple): Desired patch size (patch_h, patch_w).
-        
+        vertical_overlap (float): Fraction of the patch height that overlaps with the next patch vertically.
+        horizontal_overlap (float): Fraction of the patch width that overlaps with the next patch horizontally.
     Returns:
         patches (list): List of patches as NumPy arrays.
+        original_shape (tuple): Original dimensions (H, W).
+        padding (tuple): Amount of padding added (pad_h, pad_w).
     """
-    patches = []
     H, W = arr.shape[:2]
     ph, pw = patch_size
-    for i in range(0, H, ph):
-        for j in range(0, W, pw):
-            if i + ph <= H and j + pw <= W:
-                patch = arr[i:i+ph, j:j+pw]
-                patches.append(patch)
-    return patches
+
+    # Calculate stride sizes
+    v_stride = max(int(ph * (1 - vertical_overlap)), 1)
+    h_stride = max(int(pw * (1 - horizontal_overlap)), 1)
+
+    # Calculate required padding to make (H - ph) and (W - pw) divisible by their respective strides
+    pad_h = (v_stride - (H - ph) % v_stride) % v_stride if (H - ph) % v_stride != 0 else 0
+    pad_w = (h_stride - (W - pw) % h_stride) % h_stride if (W - pw) % h_stride != 0 else 0
+
+    # Apply padding to the image (symmetric padding for better edge handling)
+    padded_arr = np.pad(arr, ((0, pad_h), (0, pad_w)), mode='reflect')
+    H_padded, W_padded = padded_arr.shape[:2]
+
+    # Generate patches from the padded array
+    patches = []
+    for i in range(0, H_padded - ph + 1, v_stride):
+        for j in range(0, W_padded - pw + 1, h_stride):
+            patch = padded_arr[i:i+ph, j:j+pw]
+            patches.append(patch)
+    
+    return patches, (H, W), (pad_h, pad_w)
 
 def preprocess(root, processed_dir, patch_size=(224,224),
                image_extensions=('.jpg', '.jpeg', '.png'),
                gt_extensions=('.mat',)):
     """
-    Preprocesses the dataset at 'root' by splitting high-resolution images and their
-    ground truth annotations into patches of size patch_size, then saving them in
-    a processed directory.
-    
-    The images are saved as JPEG files and the ground truth patches as .npy files.
+    Preprocesses the dataset by saving full images and their patches.
     """
     images_dir = os.path.join(root, "images")
     gt_dir = os.path.join(root, "ground-truth")
     
-    if not os.path.exists(images_dir):
-        raise ValueError(f"Images directory not found: {images_dir}")
-    if not os.path.exists(gt_dir):
-        raise ValueError(f"Ground truth directory not found: {gt_dir}")
+    # Create directories for full images and patches
+    proc_full_dir = os.path.join(processed_dir, "full_images")
+    proc_img_patch_dir = os.path.join(processed_dir, "patches", "images")
+    proc_gt_patch_dir = os.path.join(processed_dir, "patches", "gt")
+    proc_gt_blur_patch_dir = os.path.join(processed_dir, "patches", "gt_blur")
     
-    # Create processed directories for images and ground truth.
-    proc_images_dir = os.path.join(processed_dir, "images")
-    proc_gt_dir = os.path.join(processed_dir, "ground-truth")
-    os.makedirs(proc_images_dir, exist_ok=True)
-    os.makedirs(proc_gt_dir, exist_ok=True)
+    os.makedirs(proc_full_dir, exist_ok=True)
+    os.makedirs(proc_img_patch_dir, exist_ok=True)
+    os.makedirs(proc_gt_patch_dir, exist_ok=True)
+    os.makedirs(proc_gt_blur_patch_dir, exist_ok=True)
     
-    # List image files.
     image_files = [f for f in os.listdir(images_dir) if f.lower().endswith(image_extensions)]
     print(f"Found {len(image_files)} images.")
     
@@ -143,116 +221,120 @@ def preprocess(root, processed_dir, patch_size=(224,224),
         image_path = os.path.join(images_dir, fname)
         base, _ = os.path.splitext(fname)
         
-        # Find corresponding ground truth .mat file.
-        gt_path = None
-        for ext_gt in gt_extensions:
-            candidate = os.path.join(gt_dir, "GT_" + base + ext_gt)
-            if os.path.exists(candidate):
-                gt_path = candidate
-                break
-        if gt_path is None:
-            print(f"Warning: GT for {fname} not found. Skipping.")
+        # Load and save full image
+        image = Image.open(image_path).convert("RGB")
+        full_save_path = os.path.join(proc_full_dir, fname)
+        image.save(full_save_path)
+        
+        # Process patches
+        image_np = np.array(image)
+        original_size = image.size  # (width, height)
+        
+        # Load GT and create maps
+        gt_path = os.path.join(gt_dir, f"GT_{base}.mat")
+        if not os.path.exists(gt_path):
+            print(f"GT for {fname} not found. Skipping.")
             continue
         
-        # Load the image.
-        image = Image.open(image_path).convert("RGB")
-        original_size = image.size  # (width, height)
-        image_np = np.array(image)
+        gt_map = load_gt_from_mat(gt_path, original_size)
+        blur_gt_map = gaussian_filter(gt_map, sigma=1)
         
-        # Load the ground truth and create a binary point map.
-        gt_map = load_gt_from_mat(gt_path, original_size)  # shape: (H, W)
-        
-        # Split the image and ground truth into patches.
-        image_patches = split_into_patches(image_np, patch_size)
-        gt_patches = split_into_patches(gt_map, patch_size)
-        
-        # Save each patch.
-        for idx, (img_patch, gt_patch) in enumerate(zip(image_patches, gt_patches)):
-            # Save image patch as JPEG.
+        # Split into patches
+        image_patches, _, _ = split_into_patches(image_np, patch_size, 0.5, 0.5)        
+        # Save patches
+        for idx, img_patch in enumerate(image_patches):
             patch_img = Image.fromarray(img_patch)
-            img_patch_filename = f"{base}_patch_{idx}.jpg"
-            img_patch_filepath = os.path.join(proc_images_dir, img_patch_filename)
-            patch_img.save(img_patch_filepath, quality=95)
+            img_patch_path = os.path.join(proc_img_patch_dir, f"{base}_patch_{idx}.jpg")
+            patch_img.save(img_patch_path)
             
-            # Save ground truth patch as .npy (matrix).
-            gt_patch_filename = f"{base}_patch_{idx}.npy"
-            gt_patch_filepath = os.path.join(proc_gt_dir, gt_patch_filename)
-            np.save(gt_patch_filepath, gt_patch)
+        gt_path = os.path.join(proc_gt_patch_dir, f"{base}.npy")
+        np.save(gt_path, gt_map)
+
+        gt_blur_path = os.path.join(proc_gt_blur_patch_dir, f"{base}.npy")
+        np.save(gt_blur_path, blur_gt_map)
             
-    print("Preprocessing complete. Processed data saved to", processed_dir)
+    
+    print(f"Preprocessing complete. Data saved to {processed_dir}")
 
 class CrowdDataset(Dataset):
-    """
-    A generic PyTorch Dataset for crowd counting.
-
-    Assumes that the root directory has two subdirectories:
-      - 'images': containing the input images (e.g. .jpg).
-      - 'ground-truth': containing corresponding ground truth annotations as .mat files.
-
-    """
-
-    def __init__(self, root, transform=None, gt_transform=None,
-                 image_extensions=('.jpg', '.jpeg', '.png'),
-                 gt_extensions=('.npy',)):
-        """
-        Args:
-            root (str): Root directory of the dataset.
-            transform (callable, optional): Transform to apply to the images.
-            gt_transform (callable, optional): Transform to apply to ground truth.
-            image_extensions (tuple): Allowed image file extensions.
-            gt_extensions (tuple): Allowed ground truth file extensions.
-        """
+    def __init__(self, root, full_transform=None, patch_transform=None, gt_transform=None):
         self.root = root
-        self.transform = transform
+        self.full_transform = full_transform
+        self.patch_transform = patch_transform
         self.gt_transform = gt_transform
-        self.image_paths = []
-        self.gt_paths = []
-
-        images_dir = os.path.join(root, "images")
-        gt_dir = os.path.join(root, "ground-truth")
-
-        if not os.path.exists(images_dir):
-            raise ValueError(f"Images directory not found: {images_dir}")
-        if not os.path.exists(gt_dir):
-            raise ValueError(f"Ground truth directory not found: {gt_dir}")
-
-        for fname in os.listdir(images_dir):
-            if fname.lower().endswith(image_extensions):
-                image_path = os.path.join(images_dir, fname)
-                base, _ = os.path.splitext(fname)
-
-                gt_path = None
-                for ext in gt_extensions:
-                    candidate = os.path.join(gt_dir,base + ext)
-                    if os.path.exists(candidate):
-                        gt_path = candidate
-                        break
-                if gt_path is None:
-                    print(
-                        f"Warning: Ground truth for {fname} not found. Skipping.")
-                    continue
-                self.image_paths.append(image_path)
-                self.gt_paths.append(gt_path)
-
-        print(
-            f"Found {len(self.image_paths)} images with ground truth in {root}")
-
+        
+        # Directory setup
+        self.full_dir = os.path.join(root, "full_images")
+        self.patch_img_dir = os.path.join(root, "patches", "images")
+        self.gt_dir = os.path.join(root, "patches", "gt")
+        self.gt_blur_dir = os.path.join(root, "patches", "gt_blur")
+        
+        # Collect all full images
+        self.full_images = [os.path.join(self.full_dir, f) for f in os.listdir(self.full_dir)
+                            if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        
+        # Validate and collect samples
+        self.samples = []
+        for full_path in self.full_images:
+            base = os.path.splitext(os.path.basename(full_path))[0]
+            
+            # Collect all image patches for this image.
+            img_patches = []
+            idx = 0
+            while True:
+                img_patch_path = os.path.join(self.patch_img_dir, f"{base}_patch_{idx}.jpg")
+                if os.path.exists(img_patch_path):
+                    img_patches.append(img_patch_path)
+                    idx += 1
+                else:
+                    break
+            
+            # GT and blurred GT are now single maps (not per-patch)
+            gt_file = os.path.join(self.gt_dir, f"{base}.npy")
+            gt_blur_file = os.path.join(self.gt_blur_dir, f"{base}.npy")
+            
+            if os.path.exists(gt_file) and os.path.exists(gt_blur_file) and len(img_patches) > 0:
+                self.samples.append({
+                    'full': full_path,
+                    'img_patches': img_patches,
+                    'gt': gt_file,
+                    'gt_blur': gt_blur_file
+                })
+    
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.samples)
     
     def __getitem__(self, idx):
-        img_path = self.image_paths[idx]
-        gt_path = self.gt_paths[idx]
+        sample = self.samples[idx]
         
-        image = Image.open(img_path).convert("RGB")
+        # Load full image.
+        full_img = Image.open(sample['full']).convert("RGB")
+        if self.full_transform:
+            full_img = self.full_transform(full_img)
+        else:
+            full_img = transforms.ToTensor()(full_img)
         
-        gt_np = np.load(gt_path)  # This should be a 2D array of shape [H, W] with binary values.
-        gt = torch.from_numpy(gt_np).float()
+        # Load image patches.
+        img_patches = []
+        for p in sample['img_patches']:
+            patch = Image.open(p).convert("RGB")
+            if self.patch_transform:
+                patch = self.patch_transform(patch)
+            else:
+                patch = transforms.ToTensor()(patch)
+            img_patches.append(patch)
+        img_patches = torch.stack(img_patches)
+        
+        # Load the ground truth map (and add a channel dimension).
+        gt = np.load(sample['gt'])
+        gt = torch.from_numpy(gt).float().unsqueeze(0)
+        if self.gt_transform:
+            gt = self.gt_transform(gt)
+        
+        # Load the blurred ground truth map.
+        gt_blur = np.load(sample['gt_blur'])
+        gt_blur = torch.from_numpy(gt_blur).float().unsqueeze(0)
+        if self.gt_transform:
+            gt_blur = self.gt_transform(gt_blur)
 
-        if gt.dim() == 2:
-            gt = gt.unsqueeze(0)
-        
-        if self.transform:
-            image = self.transform(image)
-        
-        return image, gt
+        return full_img, img_patches, gt, gt_blur
