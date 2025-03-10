@@ -100,7 +100,7 @@ if __name__ == "__main__":
         preprocess(input_train_path, processed_train_path)
 
     # Training dataset
-    train_dataset = CrowdDataset(root=processed_train_path, patch_transform=img_transforms)
+    train_dataset = CrowdDataset(root=processed_train_path)
     dataloader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=4)
 
     # Eval dataset
@@ -109,7 +109,7 @@ if __name__ == "__main__":
     if not os.path.exists(processed_eval_path):
         preprocess(input_eval_path, processed_eval_path)
 
-    eval_dataset = CrowdDataset(root=processed_eval_path, patch_transform=img_transforms)
+    eval_dataset = CrowdDataset(root=processed_eval_path)
     eval_dataloader = DataLoader(eval_dataset, batch_size=1, shuffle=False, num_workers=4)
 
     loss_fn = CrowdCountingLoss()
@@ -123,7 +123,7 @@ if __name__ == "__main__":
         running_loss = 0.0
 
         for full_img, patch_tensor, gt_tensor, gt_blur_tensor, in tqdm(dataloader, desc="Epoch Progress"):
-
+            optimizer.zero_grad()
             # Process patches in smaller mini-batches:
             patch_tensor = patch_tensor.to(device)
             gt_tensor = gt_tensor.to(device)
@@ -133,27 +133,12 @@ if __name__ == "__main__":
             pred_patches = []
             patch_tensor = patch_tensor.squeeze(0)
 
-            img = reassemble_from_patches(
-                                patch_tensor,
-                                original_shape=(full_img.shape[1] ,full_img.shape[2],full_img.shape[3]),  
-                                patch_size=(224, 224),
-                                vertical_overlap=0.5,
-                                horizontal_overlap=0.5
-                            )
-
-            plot_sample(img, gt_tensor[0], gt_tensor[0]).savefig(f"./test1")
-            plot_sample(full_img[0], gt_tensor[0], gt_tensor[0]).savefig(f"./test2")
-
             for mini_batch in torch.split(patch_tensor, mini_batch_size,0):
                 pred = clipgcc_model(mini_batch)
                 pred_patches.append(pred)
 
             pred_map = torch.cat(pred_patches, dim=0)
             pred_map = pred_map.squeeze(1)
-
-
-
-
 
             full_pred_map = reassemble_from_patches(
                                 pred_map,
@@ -164,15 +149,12 @@ if __name__ == "__main__":
                             )
 
 
-
             # Compute loss against the full ground truth (or an appropriately reassembled GT map)
             loss = loss_fn(full_pred_map, gt_tensor, gt_blur_tensor)
             loss.backward()
             optimizer.step()
 
             running_loss += loss.item()
-
-
 
         avg_loss = running_loss / len(dataloader)
         print(f"Epoch [{epoch+1}/{num_epochs}] Loss: {avg_loss:.4f}")
