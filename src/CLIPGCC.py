@@ -99,19 +99,15 @@ class HeadPointRegressor(nn.Module):
             nn.Dropout(dropout),
             nn.Conv2d(in_channels, 256, 3, padding=1),
             nn.ReLU(),
-            IFA(256),
             nn.Dropout(dropout),
             nn.Conv2d(256, 128, 3, padding=1),
             nn.ReLU(),
-            IFA(128),
             nn.Dropout(dropout),
             nn.Conv2d(128, 64, 3, padding=1),
             nn.ReLU(),
-            IFA(64),
             nn.Dropout(dropout),
             nn.Conv2d(64, 1, 1),
             nn.ReLU(),
-            IFA(1),
         )
         
         
@@ -119,7 +115,7 @@ class HeadPointRegressor(nn.Module):
         # find out where the points are
         x = self.decoder1(x)
         
-        return torch.sigmoid(x)
+        return torch.relu(x)
 
 
 def reshape_tokens_to_grid(tokens):
