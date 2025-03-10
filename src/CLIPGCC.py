@@ -62,19 +62,22 @@ class CLIPGCC(nn.Module):
         batch_size, num_patches, _ = patch_tokens.shape
 
         h = w = int(num_patches**0.5)
-        visual_features = self.projection(patch_tokens)
-        visual_features = patch_tokens.permute(0, 2, 3, 1)
+        visual_features = patch_tokens.permute(
+            0, 2, 1).view(batch_size, -1, h, w)
 
-        visual_features = F.normalize(visual_features, p=2, dim=-1)
-        text_features = F.normalize(self.text_features, p=2, dim=-1)
+        projected_visual = self.projection(visual_features)
+        projected_visual = projected_visual / \
+            projected_visual.norm(dim=1, keepdim=True)
 
-        logits = visual_features @ text_features.t()
-        print(logits.shape)
-        density = self.regressor(logits)
-        print(density.shape)
+        similarity = torch.einsum(
+            'bchw,pc->bpwh', projected_visual, self.text_embeddings)
+        similarity = similarity.permute(
+            0, 1, 3, 2)
+
+        density = self.regressor(similarity)
+
         for _ in range(5):
             density = self.upsampler(density)
-        print(density.shape)
 
         return density
 
@@ -83,7 +86,7 @@ class CLIPGCC(nn.Module):
             text_tokens = torch.cat([self.tokenizer(p) for p in prompts]).to(
                 next(self.clip_model.parameters()).device)
             text_features = self.clip_model.encode_text(text_tokens)
-            return text_features
+            return text_features / text_features.norm(dim=-1, keepdim=True)
 
     def get_visual_features(self, x):
         _, features = self.clip_model.visual(x)
