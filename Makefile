@@ -1,5 +1,7 @@
 build:
 	python3 ./src/main.py
+load:
+	python3 ./src/main.py --checkpoint-path="./experiments/best_checkpoint.pth.tar"
 eval:
 	python3 ./src/eval.py
 packages:

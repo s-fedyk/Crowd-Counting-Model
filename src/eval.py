@@ -67,7 +67,7 @@ def plot_sample(image: torch.Tensor, gt_map: torch.Tensor, pred_map: torch.Tenso
     plt.tight_layout()
     return fig
 
-def load_model_for_eval(checkpoint_path, clip_model_type='ViT-B/32', device='cuda'):
+def load_model_from_checkpoint(checkpoint_path, clip_model_type='ViT-B/32', device='cuda'):
     """
     Load a trained CLIPGCC model from checkpoint for evaluation.
     
@@ -96,6 +96,17 @@ def load_model_for_eval(checkpoint_path, clip_model_type='ViT-B/32', device='cud
     
     return model, transforms
 
+def load_from_checkpoint(checkpoint_path, model, optimizer=None, device='cuda'):
+    """Load both model and optimizer states from checkpoint"""
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    
+    # Load model state
+    model.load_state_dict(checkpoint['state_dict'])
+    
+    # Load optimizer state if available
+    if optimizer and 'optimizer' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer'])
+
 def parse_args():
     parser = argparse.ArgumentParser(description='CLIP-Guided Crowd Counting Training')
     parser.add_argument('--clip-model', type=str, default='ViT-B/32',
@@ -112,19 +123,23 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model, transforms = load_model_for_eval(args.checkpoint_path)
+    clip_model, transforms = create_model_from_pretrained(args.clip_model, pretrained="openai", force_quick_gelu=True)
+    clip_model = clip_model.to(device)
+    clip_model.eval()
+
+    model = CLIPGCC(clip_model).to(device)
+
+    load_from_checkpoint(args.checkpoint_path, model)
 
     input_eval_path = f"./data/{args.eval_path}"
     processed_eval_path = f"./processed/eval_{args.eval_path}"
     if not os.path.exists(processed_eval_path):
         preprocess(input_eval_path, processed_eval_path)
 
-    print("===LOADING DATASET===")
     eval_dataset = CrowdDataset(root=processed_eval_path, patch_transform=transforms)
     eval_dataloader = DataLoader(eval_dataset, batch_size=1, shuffle=False, num_workers=4)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     total_abs_error = 0
     total_mape = 0

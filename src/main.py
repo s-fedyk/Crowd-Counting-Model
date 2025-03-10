@@ -11,7 +11,7 @@ from datasets import reassemble_from_patches, split_into_patches
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
-from eval import plot_sample
+from eval import plot_sample, load_from_checkpoint
 import numpy as np
 
 
@@ -63,6 +63,8 @@ def parse_args():
                       help='Learning rate')
     parser.add_argument('--log-dir', type=str, default='experiments',
                       help='Directory to save logs and checkpoints')
+    parser.add_argument('--checkpoint-path', type=str, default='',
+                      help='Path to lad checkpoint from')
     parser.add_argument('--save-interval', type=int, default=5,
                       help='Save checkpoint every N epochs')
     parser.add_argument('--eval-interval', type=int, default=10,
@@ -115,10 +117,14 @@ if __name__ == "__main__":
     loss_fn = CrowdCountingLoss()
     optimizer = optim.Adam(clipgcc_model.parameters(), lr=args.lr, weight_decay = 1e-4)
     best_eval_mae = float('inf')
+    num_epochs = args.epochs
+
+    if args.checkpoint_path:
+        print(f"Loading from checkpoint {args.checkpoint_path}")
+        load_from_checkpoint(args.checkpoint_path, clipgcc_model, optimizer)
 
     writer = SummaryWriter()
 
-    num_epochs = args.epochs
     for epoch in range(num_epochs):
         running_loss = 0.0
 
