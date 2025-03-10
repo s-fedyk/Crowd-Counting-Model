@@ -73,6 +73,7 @@ class CLIPGCC(nn.Module):
         density = self.regressor(logits)
         for _ in range(5):
             density = self.upsampler(density)
+        print(density.shape)
 
         return density
 
