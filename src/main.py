@@ -133,12 +133,27 @@ if __name__ == "__main__":
             pred_patches = []
             patch_tensor = patch_tensor.squeeze(0)
 
+            img = reassemble_from_patches(
+                                patch_tensor,
+                                original_shape=(full_img.shape[1] ,full_img.shape[2],full_img.shape[3]),  
+                                patch_size=(224, 224),
+                                vertical_overlap=0.5,
+                                horizontal_overlap=0.5
+                            )
+
+            plot_sample(img, gt_tensor[0], gt_tensor[0]).savefig(f"./test1")
+            plot_sample(full_img[0], gt_tensor[0], gt_tensor[0]).savefig(f"./test2")
+
             for mini_batch in torch.split(patch_tensor, mini_batch_size,0):
                 pred = clipgcc_model(mini_batch)
                 pred_patches.append(pred)
 
             pred_map = torch.cat(pred_patches, dim=0)
             pred_map = pred_map.squeeze(1)
+
+
+
+
 
             full_pred_map = reassemble_from_patches(
                                 pred_map,
@@ -147,6 +162,8 @@ if __name__ == "__main__":
                                 vertical_overlap=0.5,
                                 horizontal_overlap=0.5
                             )
+
+
 
             # Compute loss against the full ground truth (or an appropriately reassembled GT map)
             loss = loss_fn(full_pred_map, gt_tensor, gt_blur_tensor)

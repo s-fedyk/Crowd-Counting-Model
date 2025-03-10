@@ -95,50 +95,80 @@ def load_gt_from_mat(gt_path, original_size):
 
 def reassemble_from_patches(patches, original_shape, patch_size, vertical_overlap=0.5, horizontal_overlap=0.5):
     """
-    Reassembles patches into the original image shape, considering padding and averaging overlaps.
+    Reassembles patches into original image shape with channel support.
+    Handles both 2D (H, W) and 3D (C, H, W) tensors.
     """
-    H, W = original_shape
+    # Extract dimensions based on input shape
+    if len(original_shape) == 3:
+        # Channel-first format (C, H, W)
+        C, H, W = original_shape
+        channel_axis = 0
+    else:
+        # 2D format (H, W)
+        H, W = original_shape
+        C = None
+        channel_axis = None
+
     ph, pw = patch_size
 
-    # Calculate stride sizes
+    # Calculate strides and padding
     v_stride = max(int(ph * (1 - vertical_overlap)), 1)
     h_stride = max(int(pw * (1 - horizontal_overlap)), 1)
 
+    # Calculate required padding for spatial dimensions
     pad_h = (v_stride - (H - ph) % v_stride) % v_stride if (H - ph) % v_stride != 0 else 0
     pad_w = (h_stride - (W - pw) % h_stride) % h_stride if (W - pw) % h_stride != 0 else 0
 
-    if len(original_shape) == 3:
-        C, H_orig, W_orig = original_shape
-        accumulator = torch.zeros((C, H + pad_h, W + pad_w), dtype=patches[0].dtype, device=patches[0].device)
+    # Create accumulator with proper dimensions
+    if C is not None:
+        accumulator = torch.zeros((C, H + pad_h, W + pad_w), 
+                                dtype=patches[0].dtype, 
+                                device=patches[0].device)
     else:
-        accumulator = torch.zeros((H + pad_h, W + pad_w), dtype=patches[0].dtype, device=patches[0].device)
-    
-    count_map = torch.zeros((H + pad_h, W + pad_w), dtype=torch.float32, device=patches[0].device)
+        accumulator = torch.zeros((H + pad_h, W + pad_w),
+                                dtype=patches[0].dtype,
+                                device=patches[0].device)
 
-    v_stride = max(int(ph * (1 - vertical_overlap)), 1)
-    h_stride = max(int(pw * (1 - horizontal_overlap)), 1)
+    count_map = torch.zeros((H + pad_h, W + pad_w), 
+                          dtype=torch.float32,
+                          device=patches[0].device)
 
     patch_index = 0
     for i in range(0, (H + pad_h) - ph + 1, v_stride):
         for j in range(0, (W + pad_w) - pw + 1, h_stride):
-            patch = patches[patch_index]
-            if len(original_shape) == 3:
-                accumulator[:, i:i+ph, j:j+pw] += patch
+            current_patch = patches[patch_index]
+            
+            if C is not None:
+                # Handle 3D tensor with channels
+                accumulator[:, i:i+ph, j:j+pw] += current_patch
             else:
-                accumulator[i:i+ph, j:j+pw] += patch
+                # Handle 2D tensor
+                accumulator[i:i+ph, j:j+pw] += current_patch
+                
             count_map[i:i+ph, j:j+pw] += 1
             patch_index += 1
 
+    # Normalize by overlap count and crop padding
     reassembled = accumulator / (count_map + 1e-6)
     
-    if len(original_shape) == 3:
-        return reassembled[:, :H, :W]
+    if C is not None:
+        return reassembled[:, :H, :W]  # Crop to original spatial dimensions
     else:
         return reassembled[:H, :W]
-
 def split_into_patches(arr, patch_size, vertical_overlap=0.5, horizontal_overlap=0.5):
     """
-    Splits a NumPy array into patches with overlap and handles padding for 2D/3D inputs.
+    Splits a NumPy array (an image or ground truth) into patches with vertical and horizontal overlap.
+    Adds padding if necessary to ensure all pixels are covered with overlapping patches.
+    
+    Args:
+        arr (np.array): Array of shape (H, W, C) for images or (H, W) for GT.
+        patch_size (tuple): Desired patch size (patch_h, patch_w).
+        vertical_overlap (float): Fraction of the patch height that overlaps with the next patch vertically.
+        horizontal_overlap (float): Fraction of the patch width that overlaps with the next patch horizontally.
+    Returns:
+        patches (list): List of patches as NumPy arrays.
+        original_shape (tuple): Original dimensions (H, W).
+        padding (tuple): Amount of padding added (pad_h, pad_w).
     """
     H, W = arr.shape[:2]
     ph, pw = patch_size
@@ -147,31 +177,23 @@ def split_into_patches(arr, patch_size, vertical_overlap=0.5, horizontal_overlap
     v_stride = max(int(ph * (1 - vertical_overlap)), 1)
     h_stride = max(int(pw * (1 - horizontal_overlap)), 1)
 
-    # Calculate required padding
+    # Calculate required padding to make (H - ph) and (W - pw) divisible by their respective strides
     pad_h = (v_stride - (H - ph) % v_stride) % v_stride if (H - ph) % v_stride != 0 else 0
     pad_w = (h_stride - (W - pw) % h_stride) % h_stride if (W - pw) % h_stride != 0 else 0
 
-    # Determine padding configuration based on array dimensions
-    if arr.ndim == 3:
-        # For 3D arrays (e.g., RGB images), pad only spatial dimensions (H, W)
-        pad_width = ((0, pad_h), (0, pad_w), (0, 0))
-    else:
-        # For 2D arrays (e.g., GT maps), pad H and W
-        pad_width = ((0, pad_h), (0, pad_w))
+    # Apply padding to the image (symmetric padding for better edge handling)
+    padded_arr = np.pad(arr, ((0, pad_h), (0, pad_w)), mode='reflect')
+    H_padded, W_padded = padded_arr.shape[:2]
 
-    padded_arr = np.pad(arr, pad_width, mode='reflect')
+    # Generate patches from the padded array
     patches = []
-
-    # Generate patches
-    for i in range(0, padded_arr.shape[0] - ph + 1, v_stride):
-        for j in range(0, padded_arr.shape[1] - pw + 1, h_stride):
-            if arr.ndim == 3:
-                patch = padded_arr[i:i+ph, j:j+pw, :]
-            else:
-                patch = padded_arr[i:i+ph, j:j+pw]
+    for i in range(0, H_padded - ph + 1, v_stride):
+        for j in range(0, W_padded - pw + 1, h_stride):
+            patch = padded_arr[i:i+ph, j:j+pw]
             patches.append(patch)
-
+    
     return patches, (H, W), (pad_h, pad_w)
+
 def preprocess(root, processed_dir, patch_size=(224,224),
                image_extensions=('.jpg', '.jpeg', '.png'),
                gt_extensions=('.mat',)):
