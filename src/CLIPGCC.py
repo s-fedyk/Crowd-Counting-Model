@@ -79,7 +79,7 @@ class CLIPGCC(nn.Module):
         for _ in range(5):
             density = self.upsampler(density)
 
-        return density
+        return torch.relu(density)
 
     def encode_text(self, prompts):
         with torch.no_grad():

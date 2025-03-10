@@ -105,7 +105,7 @@ if __name__ == "__main__":
         preprocess(input_train_path, processed_train_path)
 
     # Training dataset
-    train_dataset = CrowdDataset(root=processed_train_path)
+    train_dataset = CrowdDataset(root=processed_train_path, patch_transform=img_transforms)
     dataloader = DataLoader(train_dataset, batch_size=1,
                             shuffle=True, num_workers=4)
 
@@ -115,7 +115,7 @@ if __name__ == "__main__":
     if not os.path.exists(processed_eval_path):
         preprocess(input_eval_path, processed_eval_path)
 
-    eval_dataset = CrowdDataset(root=processed_eval_path)
+    eval_dataset = CrowdDataset(root=processed_eval_path, patch_transform=img_transforms)
     eval_dataloader = DataLoader(
         eval_dataset, batch_size=1, shuffle=False, num_workers=4)
 
