@@ -69,8 +69,9 @@ class CLIPGCC(nn.Module):
         text_features = F.normalize(self.text_features, p=2, dim=-1)
 
         logits = visual_features @ text_features.t()
-
+        print(logits.shape)
         density = self.regressor(logits)
+        print(density.shape)
         for _ in range(5):
             density = self.upsampler(density)
         print(density.shape)
