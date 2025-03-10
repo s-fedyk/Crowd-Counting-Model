@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
     loss_fn = CrowdCountingLoss()
     optimizer = optim.Adam(clipgcc_model.parameters(),
-                           lr=args.lr)
+                           lr=args.lr, weight_decay=1e-6)
     best_eval_mae = float('inf')
     num_epochs = args.epochs
 

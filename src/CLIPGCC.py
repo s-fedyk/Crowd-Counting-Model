@@ -33,6 +33,9 @@ BASE_PROMPTS = [
     "this image has 35-40 people",
     "this image has 40-45 people",
     "this image has 45-50 people",
+    "this image has 50-55 people",
+    "this image has 55-58 people",
+
 ]
 
 
