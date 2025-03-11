@@ -15,7 +15,7 @@ from eval import plot_sample, load_from_checkpoint
 import numpy as np
 
 
-from CLIPGCC import CLIPGCC, ConvNeXtSegmentation
+from CLIPGCC import CLIPGCC, ConvNeXtSegmentation, UNet
 from losses import CrowdCountingLoss
 
 from CLIP.factory import create_model_from_pretrained
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     clip_model.eval()
 
     # Create the CLIP-guided crowd counting model.
-    clipgcc_model = ConvNeXtSegmentation()
+    clipgcc_model = UNet(n_channels=3, n_classes=1)
     clipgcc_model.to(device)
     clipgcc_model.train()
 
