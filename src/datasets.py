@@ -230,7 +230,7 @@ def preprocess(root, processed_dir, patch_size=(224,224),
             continue
         
         gt_map = load_gt_from_mat(gt_path, original_size)
-        blur_gt_map = gaussian_filter(gt_map, sigma=1)
+        blur_gt_map = gaussian_filter(gt_map, sigma=5)
         
         # Split into patches
         image_patches, _, _ = split_into_patches(image_np, patch_size, 0.5, 0.5)        

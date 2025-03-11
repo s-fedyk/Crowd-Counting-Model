@@ -47,7 +47,7 @@ class CLIPGCC(nn.Module):
         self.num_prompts = len(prompts)
         self.tokenizer = SimpleTokenizer()
 
-        self.feature_dim = 768
+        self.feature_dim = 512
         self.projection = nn.Conv2d(
             in_channels=self.feature_dim, out_channels=self.clip_embed_dim, kernel_size=1)
         self.regressor = nn.Sequential(
@@ -55,35 +55,29 @@ class CLIPGCC(nn.Module):
             nn.ReLU(),
             nn.Conv2d(1, 1, 1)
         )
-        self.upsampler = nn.Upsample(scale_factor=2, mode="bilinear")
+
+        self.upsampler = torch.hub.load("mhamilton723/FeatUp", 'maskclip', use_norm=False)        
+        self.scale = nn.Parameter(torch.tensor(0.1))
 
         self.text_embeddings = self.encode_text(prompts)
 
     def forward(self, x):
-        # Get patch tokens [batch, num_patches, visual_feature_dim]
-        patch_tokens = self.get_visual_features(x)
-        batch_size, num_patches, _ = patch_tokens.shape
-
-        h = w = int(num_patches**0.5)
-        visual_features = patch_tokens.permute(
-            0, 2, 1).view(batch_size, -1, h, w)
-
+        # Get upsampled features [BS, 512, 224, 224]
+        visual_features = self.upsampler(x)
+        
+        # Project to CLIP embedding space
         projected_visual = self.projection(visual_features)
-        projected_visual = projected_visual / \
-            projected_visual.norm(dim=1, keepdim=True)
-
-        similarity = torch.einsum(
-            'bchw,pc->bpwh', projected_visual, self.text_embeddings)
-        similarity = similarity.permute(
-            0, 1, 3, 2)
-
-        density = self.regressor(similarity)
-
-        for _ in range(5):
-            density = self.upsampler(density)
-
-        return torch.relu(density)
-
+        projected_visual = F.normalize(projected_visual, dim=1)
+        
+        # Calculate similarity between visual features and text prompts
+        similarity = torch.einsum('bchw,pc->bpwh', projected_visual, self.text_embeddings)
+        similarity = similarity.permute(0, 1, 3, 2)  # [BS, num_prompts, H, W]
+        
+        # Regress to density map
+        density = self.regressor(similarity) * self.scale
+        
+        # Sigmoid activation for [0,1] range
+        return torch.sigmoid(density)
     def encode_text(self, prompts):
         with torch.no_grad():
             text_tokens = torch.cat([self.tokenizer(p) for p in prompts]).to(

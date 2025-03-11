@@ -9,7 +9,7 @@ from geomloss import SamplesLoss
 
 
 class CrowdCountingLoss(nn.Module):
-    def __init__(self, alpha=1, sinkhorn_blur=0.05, density_scale=10):  # Increased blur
+    def __init__(self, alpha=1, sinkhorn_blur=0.20, density_scale=10):  # Increased blur
         super().__init__()
         self.alpha = alpha
         self.density_scale = density_scale
@@ -34,7 +34,9 @@ class CrowdCountingLoss(nn.Module):
         gt_count = gt_map.sum(dim=[0,1])
         
         count_loss = F.l1_loss(pred_count, gt_count)
-        density_loss = F.mse_loss(pred_map, gt_blur_map)
+        density_loss = 10 * F.mse_loss(pred_map, gt_blur_map)
+        spatial_loss = self.alpha * self.sinkhorn(pred_map, gt_map)
 
-        spatial_loss = self.sinkhorn(pred_map, gt_map)
-        return density_loss + count_loss + self.alpha * spatial_loss
+        print(count_loss, density_loss, spatial_loss)
+
+        return density_loss + count_loss + spatial_loss
