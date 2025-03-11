@@ -97,9 +97,9 @@ if __name__ == "__main__":
     """
 
     # Create the CLIP-guided crowd counting model.
-    clipgcc_model = UNet(n_channels=3, n_classes=1)
-    clipgcc_model.to(device)
-    clipgcc_model.train()
+    model = UNet(n_channels=3, n_classes=1)
+    model.to(device)
+    model.train()
 
     # Train dataset
     input_train_path = f"./data/{args.train_path}"
@@ -125,14 +125,14 @@ if __name__ == "__main__":
         eval_dataset, batch_size=1, shuffle=False, num_workers=4)
 
     loss_fn = CrowdCountingLoss()
-    optimizer = optim.Adam(clipgcc_model.parameters(),
+    optimizer = optim.Adam(model.parameters(),
                            lr=args.lr, weight_decay=1e-4)
     best_eval_mae = float('inf')
     num_epochs = args.epochs
 
     if args.checkpoint_path:
         print(f"Loading from checkpoint {args.checkpoint_path}")
-        load_from_checkpoint(args.checkpoint_path, clipgcc_model, optimizer)
+        load_from_checkpoint(args.checkpoint_path, model, optimizer)
 
     writer = SummaryWriter()
 
@@ -142,31 +142,12 @@ if __name__ == "__main__":
         for full_img, patch_tensor, gt_tensor, gt_blur_tensor, in tqdm(dataloader, desc="Epoch Progress"):
             optimizer.zero_grad()
             # Process patches in smaller mini-batches:
-            patch_tensor = patch_tensor.to(device)
-            gt_tensor = gt_tensor.to(device)
+            full_img = full_img.to(device)
             gt_blur_tensor = gt_blur_tensor.to(device)
 
-            mini_batch_size = 8  # Adjust based on your GPU memory
-            pred_patches = []
-            patch_tensor = patch_tensor.squeeze(0)
+            pred = model(full_img)
 
-            for mini_batch in torch.split(patch_tensor, mini_batch_size, 0):
-                pred = clipgcc_model(mini_batch)
-                pred_patches.append(pred)
-
-            pred_map = torch.cat(pred_patches, dim=0)
-            pred_map = pred_map.squeeze(1)
-
-            full_pred_map = reassemble_from_patches(
-                pred_map,
-                original_shape=(full_img.shape[2], full_img.shape[3]),
-                patch_size=(224, 224),
-                vertical_overlap=0.5,
-                horizontal_overlap=0.5
-            )
-
-            # Compute loss against the full ground truth (or an appropriately reassembled GT map)
-            loss = loss_fn(full_pred_map, gt_tensor, gt_blur_tensor)
+            loss = loss_fn(pred, gt_tensor, gt_blur_tensor)
             loss.backward()
             optimizer.step()
 
@@ -177,56 +158,36 @@ if __name__ == "__main__":
         writer.add_scalar('Loss/train', avg_loss, epoch)
 
         # if ((epoch+1) % args.save_interval == 0):
-        # kj   save_checkpoint(clipgcc_model, optimizer, epoch+1, args.log_dir)
+        # kj   save_checkpoint(model, optimizer, epoch+1, args.log_dir)
 
         if ((epoch+1) % args.eval_interval == 0):
-            clipgcc_model.eval()
+            model.eval()
             total_abs_error = 0.0
             total_images = 0
             with torch.no_grad():
                 for i, (full_img, patch_tensor, gt_tensor, gt_blur_tensor) in enumerate(eval_dataloader):
-                    # Process patches in smaller mini-batches:
-                    patch_tensor = patch_tensor.to(device)
-                    gt_tensor = gt_tensor.to(device)
+                    full_img = full_img.to(device)
                     gt_blur_tensor = gt_blur_tensor.to(device)
+                    pred = model(full_img)
 
-                    mini_batch_size = 8  # Adjust based on your GPU memory
-                    pred_patches = []
-                    patch_tensor = patch_tensor.squeeze(0)
-
-                    for mini_batch in torch.split(patch_tensor, mini_batch_size, 0):
-                        pred = clipgcc_model(mini_batch)
-                        pred_patches.append(pred)
-
-                    pred_map = torch.cat(pred_patches, dim=0)
-                    pred_map = pred_map.squeeze(1)
-
-                    full_pred_map = reassemble_from_patches(
-                        pred_map,
-                        original_shape=(full_img.shape[2], full_img.shape[3]),
-                        patch_size=(224, 224),
-                        vertical_overlap=0.5,
-                        horizontal_overlap=0.5
-                    )
-
-                    pred_count = full_pred_map.sum(dim=[0, 1])
-                    gt_count = gt_tensor.sum(dim=[1, 2, 3])
+                    pred_count = pred.sum(dim=[0, 1])
+                    gt_count = gt_blur_tensor.sum(dim=[0, 1])
 
                     total_abs_error += torch.sum(
                         torch.abs(pred_count - gt_count)).item()
                     total_images += 1
                     if (i <= 10):
-                        plot_sample(full_img[0], gt_tensor[0], full_pred_map).savefig(
+                        plot_sample(full_img[0], gt_tensor[0], pred[0]).savefig(
                             f"{args.log_dir}/img-{i}")
-            mae = total_abs_error / total_images
 
+            mae = total_abs_error / total_images
             if mae < best_eval_mae:
-                save_checkpoint(clipgcc_model, optimizer,
+                save_checkpoint(model, optimizer,
                                 epoch+1, args.log_dir, True)
                 best_eval_mae = mae
 
             print(f"Epoch [{epoch+1}/{num_epochs}] Evaluation MAE: {mae:.2f}")
             writer.add_scalar('mae/test', mae, epoch)
-            clipgcc_model.train()
+            model.train()
         # Switch back to train mode.
-        clipgcc_model.train()
+        model.train()
