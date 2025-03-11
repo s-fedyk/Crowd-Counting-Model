@@ -89,10 +89,12 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load the CLIP model and associated transforms.
+    """
     clip_model, img_transforms = create_model_from_pretrained(
         args.clip_model, pretrained="openai", force_quick_gelu=True)
     clip_model.to(device)
     clip_model.eval()
+    """
 
     # Create the CLIP-guided crowd counting model.
     clipgcc_model = UNet(n_channels=3, n_classes=1)
@@ -106,7 +108,8 @@ if __name__ == "__main__":
         preprocess(input_train_path, processed_train_path)
 
     # Training dataset
-    train_dataset = CrowdDataset(root=processed_train_path, patch_transform=img_transforms)
+    train_dataset = CrowdDataset(
+        root=processed_train_path)
     dataloader = DataLoader(train_dataset, batch_size=1,
                             shuffle=True, num_workers=4)
 
@@ -116,7 +119,8 @@ if __name__ == "__main__":
     if not os.path.exists(processed_eval_path):
         preprocess(input_eval_path, processed_eval_path)
 
-    eval_dataset = CrowdDataset(root=processed_eval_path, patch_transform=img_transforms)
+    eval_dataset = CrowdDataset(
+        root=processed_eval_path)
     eval_dataloader = DataLoader(
         eval_dataset, batch_size=1, shuffle=False, num_workers=4)
 

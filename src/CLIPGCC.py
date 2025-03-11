@@ -6,13 +6,14 @@ from torch.nn.modules import Dropout
 from CLIP.tokenizer import SimpleTokenizer
 
 
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 # A helper module that applies two consecutive convolutional layers,
 # each followed by batch normalization and ReLU activation.
+
+
 class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels, mid_channels=None):
         super().__init__()
@@ -26,11 +27,13 @@ class DoubleConv(nn.Module):
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
-    
+
     def forward(self, x):
         return self.double_conv(x)
 
 # Down-sampling block: applies max pooling followed by a DoubleConv block.
+
+
 class Down(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
@@ -38,27 +41,31 @@ class Down(nn.Module):
             nn.MaxPool2d(2),
             DoubleConv(in_channels, out_channels)
         )
-    
+
     def forward(self, x):
         return self.maxpool_conv(x)
 
 # Up-sampling block: upsamples the input, concatenates with the corresponding
 # feature map from the encoder (skip connection), and then applies a DoubleConv block.
+
+
 class Up(nn.Module):
     def __init__(self, in_channels, out_channels, bilinear=True):
         super().__init__()
 
         # if bilinear, use the normal upsampling method; otherwise use transposed conv.
         if bilinear:
-            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+            self.up = nn.Upsample(
+                scale_factor=2, mode='bilinear', align_corners=True)
             # After concatenation the number of input channels becomes in_channels,
             # so we reduce it to out_channels via DoubleConv.
             self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
         else:
             # using transposed convolution to upsample
-            self.up = nn.ConvTranspose2d(in_channels // 2, in_channels // 2, kernel_size=2, stride=2)
+            self.up = nn.ConvTranspose2d(
+                in_channels // 2, in_channels // 2, kernel_size=2, stride=2)
             self.conv = DoubleConv(in_channels, out_channels)
-    
+
     def forward(self, x1, x2):
         # x1: upsampled feature map from the decoder.
         # x2: corresponding feature map from the encoder (skip connection).
@@ -73,17 +80,21 @@ class Up(nn.Module):
         return self.conv(x)
 
 # Final output convolution: reduces the number of channels to the desired number of classes.
+
+
 class OutConv(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(OutConv, self).__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-    
+
     def forward(self, x):
         return self.conv(x)
 
 # The complete U-Net model.
+
+
 class UNet(nn.Module):
-    def __init__(self, n_channels, n_classes, bilinear=True):
+    def __init__(self, n_channels, n_classes, bilinear=False):
         """
         Args:
             n_channels: Number of channels in the input image (e.g., 3 for RGB).
@@ -106,7 +117,7 @@ class UNet(nn.Module):
         self.up3 = Up(256, 128 // factor, bilinear)
         self.up4 = Up(128, 64, bilinear)
         self.outc = OutConv(64, n_classes)
-    
+
     def forward(self, x):
         x1 = self.inc(x)      # (B, 64, H, W)
         x2 = self.down1(x1)   # (B, 128, H/2, W/2)
@@ -118,7 +129,8 @@ class UNet(nn.Module):
         x = self.up3(x, x2)   # (B, 128, H/2, W/2)
         x = self.up4(x, x1)   # (B, 64, H, W)
         logits = self.outc(x)
-        return logits
+
+        return torch.sigmoid(logits)
 
 
 # Helper: custom LayerNorm for 2D conv features.
@@ -127,7 +139,7 @@ class LayerNorm2d(nn.Module):
     def __init__(self, num_channels, eps=1e-6):
         super().__init__()
         self.norm = nn.LayerNorm(num_channels, eps=eps)
-    
+
     def forward(self, x):
         # x: (B, C, H, W) -> (B, H, W, C)
         x = x.permute(0, 2, 3, 1)
@@ -138,16 +150,21 @@ class LayerNorm2d(nn.Module):
 
 # ConvNeXt Block: uses a depthwise convolution, layer norm in channel-last,
 # and two linear layers (point-wise convolutions) with GELU activation.
+
+
 class ConvNeXtBlock(nn.Module):
     def __init__(self, dim, layer_scale_init_value=1e-6):
         super().__init__()
-        self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim)  # depthwise convolution
-        self.norm = nn.LayerNorm(dim, eps=1e-6)  # applied on channel-last tensor
+        self.dwconv = nn.Conv2d(dim, dim, kernel_size=7,
+                                padding=3, groups=dim)  # depthwise convolution
+        # applied on channel-last tensor
+        self.norm = nn.LayerNorm(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(dim, 4 * dim)  # pointwise/linear layer
         self.act = nn.GELU()
         self.pwconv2 = nn.Linear(4 * dim, dim)
         # A learnable scale parameter initialized to a small value
-        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones((dim)), requires_grad=True) if layer_scale_init_value > 0 else None
+        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones(
+            (dim)), requires_grad=True) if layer_scale_init_value > 0 else None
 
     def forward(self, x):
         residual = x
@@ -167,19 +184,24 @@ class ConvNeXtBlock(nn.Module):
         return x
 
 # Decoder block: upsamples input, concatenates with skip connection, and refines via convolution.
+
+
 class DecoderBlock(nn.Module):
     def __init__(self, in_channels, skip_channels, out_channels):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels + skip_channels, out_channels, kernel_size=3, padding=1)
+        self.conv1 = nn.Conv2d(in_channels + skip_channels,
+                               out_channels, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels,
+                               kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.relu2 = nn.ReLU(inplace=True)
-    
+
     def forward(self, x, skip):
         # Upsample x by a factor of 2
-        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False)
+        x = F.interpolate(x, scale_factor=2, mode='bilinear',
+                          align_corners=False)
         # Concatenate with corresponding encoder feature (skip connection)
         x = torch.cat([x, skip], dim=1)
         x = self.conv1(x)
@@ -191,6 +213,8 @@ class DecoderBlock(nn.Module):
         return x
 
 # ConvNeXt-based segmentation model with U-Net style decoder.
+
+
 class ConvNeXtSegmentation(nn.Module):
     def __init__(self, in_channels=3, num_classes=1, depths=[3, 3, 9, 3], dims=[96, 192, 384, 768]):
         """
@@ -210,8 +234,9 @@ class ConvNeXtSegmentation(nn.Module):
         self.stages = nn.ModuleList()
 
         # Stage 1 (resolution: H/4)
-        self.stages.append(nn.Sequential(*[ConvNeXtBlock(dims[0]) for _ in range(depths[0])]))
-        
+        self.stages.append(nn.Sequential(
+            *[ConvNeXtBlock(dims[0]) for _ in range(depths[0])]))
+
         # Stage 2 (resolution: H/8)
         self.downsample_layers.append(
             nn.Sequential(
@@ -219,7 +244,8 @@ class ConvNeXtSegmentation(nn.Module):
                 nn.Conv2d(dims[0], dims[1], kernel_size=2, stride=2)
             )
         )
-        self.stages.append(nn.Sequential(*[ConvNeXtBlock(dims[1]) for _ in range(depths[1])]))
+        self.stages.append(nn.Sequential(
+            *[ConvNeXtBlock(dims[1]) for _ in range(depths[1])]))
 
         # Stage 3 (resolution: H/16)
         self.downsample_layers.append(
@@ -228,7 +254,8 @@ class ConvNeXtSegmentation(nn.Module):
                 nn.Conv2d(dims[1], dims[2], kernel_size=2, stride=2)
             )
         )
-        self.stages.append(nn.Sequential(*[ConvNeXtBlock(dims[2]) for _ in range(depths[2])]))
+        self.stages.append(nn.Sequential(
+            *[ConvNeXtBlock(dims[2]) for _ in range(depths[2])]))
 
         # Stage 4 (resolution: H/32)
         self.downsample_layers.append(
@@ -237,15 +264,19 @@ class ConvNeXtSegmentation(nn.Module):
                 nn.Conv2d(dims[2], dims[3], kernel_size=2, stride=2)
             )
         )
-        self.stages.append(nn.Sequential(*[ConvNeXtBlock(dims[3]) for _ in range(depths[3])]))
+        self.stages.append(nn.Sequential(
+            *[ConvNeXtBlock(dims[3]) for _ in range(depths[3])]))
 
         # Decoder: U-Net style blocks.
         # Decoder Block 1: upsample from stage 4 (H/32) to merge with stage 3 (H/16).
-        self.decoder1 = DecoderBlock(in_channels=dims[3], skip_channels=dims[2], out_channels=dims[2])
+        self.decoder1 = DecoderBlock(
+            in_channels=dims[3], skip_channels=dims[2], out_channels=dims[2])
         # Decoder Block 2: upsample to merge with stage 2 (H/8).
-        self.decoder2 = DecoderBlock(in_channels=dims[2], skip_channels=dims[1], out_channels=dims[1])
+        self.decoder2 = DecoderBlock(
+            in_channels=dims[2], skip_channels=dims[1], out_channels=dims[1])
         # Decoder Block 3: upsample to merge with stage 1 (H/4).
-        self.decoder3 = DecoderBlock(in_channels=dims[1], skip_channels=dims[0], out_channels=dims[0])
+        self.decoder3 = DecoderBlock(
+            in_channels=dims[1], skip_channels=dims[0], out_channels=dims[0])
 
         # Final segmentation head: produces prediction maps.
         self.head = nn.Sequential(
@@ -253,14 +284,17 @@ class ConvNeXtSegmentation(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(dims[0], num_classes, kernel_size=1)
         )
-        
+
     def forward(self, x):
         # Encoder
         x0 = self.stem(x)                      # (B, dims[0], H/4, W/4)
         x1 = self.stages[0](x0)                # (B, dims[0], H/4, W/4)
-        x2 = self.stages[1](self.downsample_layers[0](x1))  # (B, dims[1], H/8, W/8)
-        x3 = self.stages[2](self.downsample_layers[1](x2))  # (B, dims[2], H/16, W/16)
-        x4 = self.stages[3](self.downsample_layers[2](x3))  # (B, dims[3], H/32, W/32)
+        x2 = self.stages[1](self.downsample_layers[0](x1)
+                            )  # (B, dims[1], H/8, W/8)
+        x3 = self.stages[2](self.downsample_layers[1](x2)
+                            )  # (B, dims[2], H/16, W/16)
+        x4 = self.stages[3](self.downsample_layers[2](x3)
+                            )  # (B, dims[3], H/32, W/32)
 
         # Decoder with skip connections
         d1 = self.decoder1(x4, x3)   # (B, dims[2], H/16, W/16)
@@ -269,8 +303,10 @@ class ConvNeXtSegmentation(nn.Module):
 
         out = self.head(d3)         # (B, num_classes, H/4, W/4)
         # Upsample to match original resolution.
-        out = F.interpolate(out, scale_factor=4, mode="bilinear", align_corners=False)
+        out = F.interpolate(out, scale_factor=4,
+                            mode="bilinear", align_corners=False)
         return torch.sigmoid(out)
+
 
 def reshape_tokens_to_grid(tokens):
     B, N, D = tokens.shape
