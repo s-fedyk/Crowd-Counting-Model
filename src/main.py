@@ -95,7 +95,7 @@ if __name__ == "__main__":
     clip_model.eval()
 
     # Create the CLIP-guided crowd counting model.
-    clipgcc_model = CLIPGCC(clip_model).to(device)
+    clipgcc_model = CLIPGCC(clip_model, use_checkpointing=True).to(device)
     clipgcc_model.train()
 
     # Train dataset
@@ -146,6 +146,7 @@ if __name__ == "__main__":
             patch_tensor = patch_tensor.squeeze(0)
 
             for mini_batch in torch.split(patch_tensor, mini_batch_size, 0):
+                mini_batch = mini_batch.clone().detach().requires_grad_()
                 pred = clipgcc_model(mini_batch)
                 pred_patches.append(pred)
 

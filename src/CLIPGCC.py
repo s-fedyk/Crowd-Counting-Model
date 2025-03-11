@@ -1,21 +1,17 @@
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.modules import Dropout
-
+from torch.utils.checkpoint import checkpoint
 from CLIP.tokenizer import SimpleTokenizer
-
 
 def reshape_tokens_to_grid(tokens):
     B, N, D = tokens.shape
     grid_size = int(N ** 0.5)
-
     assert grid_size * grid_size == N, "Expected a square grid of patches"
     grid = tokens.view(B, grid_size, grid_size, D)
     grid = grid.permute(0, 3, 1, 2)
-
     return grid
-
 
 BASE_PROMPTS = [
     "this image has 0-5 people",
@@ -35,17 +31,16 @@ BASE_PROMPTS = [
     "this image has 45-50 people",
     "this image has 50-55 people",
     "this image has 55-58 people",
-
 ]
 
-
 class CLIPGCC(nn.Module):
-    def __init__(self, clip_model, prompts=BASE_PROMPTS):
+    def __init__(self, clip_model, prompts=BASE_PROMPTS, use_checkpointing=True):
         super(CLIPGCC, self).__init__()
         self.clip_model = clip_model
         self.clip_embed_dim = clip_model.visual.output_dim
         self.num_prompts = len(prompts)
         self.tokenizer = SimpleTokenizer()
+        self.use_checkpointing = use_checkpointing
 
         self.feature_dim = 512
         self.projection = nn.Conv2d(
@@ -59,25 +54,27 @@ class CLIPGCC(nn.Module):
         self.upsampler = torch.hub.load("mhamilton723/FeatUp", 'maskclip', use_norm=False)        
         self.scale = nn.Parameter(torch.tensor(0.1))
 
+        # Pre-compute text embeddings (no gradient needed)
         self.text_embeddings = self.encode_text(prompts)
 
-    def forward(self, x):
-        # Get upsampled features [BS, 512, 224, 224]
+    def heavy_forward(self, x):
+        # This part contains the operations that are memory intensive.
         visual_features = self.upsampler(x)
-        
-        # Project to CLIP embedding space
         projected_visual = self.projection(visual_features)
         projected_visual = F.normalize(projected_visual, dim=1)
-        
-        # Calculate similarity between visual features and text prompts
         similarity = torch.einsum('bchw,pc->bpwh', projected_visual, self.text_embeddings)
         similarity = similarity.permute(0, 1, 3, 2)  # [BS, num_prompts, H, W]
-        
-        # Regress to density map
         density = self.regressor(similarity) * self.scale
-        
-        # Sigmoid activation for [0,1] range
+        return density
+
+    def forward(self, x):
+        if self.use_checkpointing:
+            # Wrap the heavy forward computation with checkpointing.
+            density = checkpoint(self.heavy_forward, x)
+        else:
+            density = self.heavy_forward(x)
         return torch.sigmoid(density)
+
     def encode_text(self, prompts):
         with torch.no_grad():
             text_tokens = torch.cat([self.tokenizer(p) for p in prompts]).to(
@@ -88,3 +85,4 @@ class CLIPGCC(nn.Module):
     def get_visual_features(self, x):
         _, features = self.clip_model.visual(x)
         return features
+
