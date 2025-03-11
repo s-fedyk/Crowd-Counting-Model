@@ -35,6 +35,8 @@ class CrowdCountingLoss(nn.Module):
         
         count_loss = F.l1_loss(pred_count, gt_count)
         density_loss = 10 * F.mse_loss(pred_map, gt_blur_map)
-        print(f"density loss {density_loss}, count loss {count_loss}")
+        spatial_loss = self.alpha * self.sinkhorn(pred_map, gt_map)
 
-        return density_loss + count_loss
+        print(count_loss, density_loss, spatial_loss)
+
+        return density_loss + count_loss + spatial_loss

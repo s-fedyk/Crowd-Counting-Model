@@ -15,7 +15,7 @@ from eval import plot_sample, load_from_checkpoint
 import numpy as np
 
 
-from CLIPGCC import CLIPGCC
+from CLIPGCC import CLIPGCC, ConvNeXtSegmentation
 from losses import CrowdCountingLoss
 
 from CLIP.factory import create_model_from_pretrained
@@ -95,7 +95,8 @@ if __name__ == "__main__":
     clip_model.eval()
 
     # Create the CLIP-guided crowd counting model.
-    clipgcc_model = CLIPGCC(clip_model, use_checkpointing=True).to(device)
+    clipgcc_model = ConvNeXtSegmentation()
+    clipgcc_model.to(device)
     clipgcc_model.train()
 
     # Train dataset
@@ -141,12 +142,11 @@ if __name__ == "__main__":
             gt_tensor = gt_tensor.to(device)
             gt_blur_tensor = gt_blur_tensor.to(device)
 
-            mini_batch_size = 12  # Adjust based on your GPU memory
+            mini_batch_size = 8  # Adjust based on your GPU memory
             pred_patches = []
             patch_tensor = patch_tensor.squeeze(0)
 
             for mini_batch in torch.split(patch_tensor, mini_batch_size, 0):
-                mini_batch = mini_batch.clone().detach().requires_grad_()
                 pred = clipgcc_model(mini_batch)
                 pred_patches.append(pred)
 
