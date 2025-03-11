@@ -120,7 +120,6 @@ class ConvNeXtSegmentation(nn.Module):
         x = self.head(x)
         # The overall downsampling factor is 4 * 2^3 = 32. Upsample back to input resolution.
         x = F.interpolate(x, scale_factor=32, mode="bilinear", align_corners=False)
-        print(x.shape)
         return x
 
 def reshape_tokens_to_grid(tokens):
