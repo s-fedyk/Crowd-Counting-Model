@@ -157,8 +157,8 @@ if __name__ == "__main__":
                 pred_map,
                 original_shape=(full_img.shape[2], full_img.shape[3]),
                 patch_size=(224, 224),
-                vertical_overlap=0.5,
-                horizontal_overlap=0.5
+                vertical_overlap=0.75,
+                horizontal_overlap=0.75,
             )
 
             # Compute loss against the full ground truth (or an appropriately reassembled GT map)
