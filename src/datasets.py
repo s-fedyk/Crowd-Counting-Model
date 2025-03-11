@@ -93,7 +93,7 @@ def load_gt_from_mat(gt_path, original_size):
     point_map = points_to_point_map(points, orig_shape)
     return point_map
 
-def reassemble_from_patches(patches, original_shape, patch_size, vertical_overlap=0.75, horizontal_overlap=0.75):
+def reassemble_from_patches(patches, original_shape, patch_size, vertical_overlap=0.5, horizontal_overlap=0.5):
     # Extract dimensions based on input shape
     if len(original_shape) == 3:
         # Channel-first format (C, H, W)
@@ -149,7 +149,7 @@ def reassemble_from_patches(patches, original_shape, patch_size, vertical_overla
     else:
         return reassembled[:H, :W]
 
-def split_into_patches(arr, patch_size, vertical_overlap=0.75, horizontal_overlap=0.75):
+def split_into_patches(arr, patch_size, vertical_overlap=0.5, horizontal_overlap=0.5):
     """
     Splits a NumPy array into patches with proper handling of both 2D and 3D arrays.
     """
@@ -230,10 +230,10 @@ def preprocess(root, processed_dir, patch_size=(224,224),
             continue
         
         gt_map = load_gt_from_mat(gt_path, original_size)
-        blur_gt_map = gaussian_filter(gt_map, sigma=5)
+        blur_gt_map = gaussian_filter(gt_map, sigma=3)
         
         # Split into patches
-        image_patches, _, _ = split_into_patches(image_np, patch_size, 0.75, 0.75)        
+        image_patches, _, _ = split_into_patches(image_np, patch_size, 0.5, 0.5)        
         # Save patches
         for idx, img_patch in enumerate(image_patches):
             patch_img = Image.fromarray(img_patch)
