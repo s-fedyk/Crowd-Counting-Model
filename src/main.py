@@ -141,7 +141,7 @@ if __name__ == "__main__":
             gt_tensor = gt_tensor.to(device)
             gt_blur_tensor = gt_blur_tensor.to(device)
 
-            mini_batch_size = 4  # Adjust based on your GPU memory
+            mini_batch_size = 2  # Adjust based on your GPU memory
             pred_patches = []
             patch_tensor = patch_tensor.squeeze(0)
 
