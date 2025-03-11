@@ -5,6 +5,7 @@ from torch.nn.modules import Dropout
 
 from CLIP.tokenizer import SimpleTokenizer
 
+
 # Helper: custom LayerNorm for 2D conv features.
 # It permutes the tensor so that normalization is applied on the channel dimension.
 class LayerNorm2d(nn.Module):
@@ -50,21 +51,42 @@ class ConvNeXtBlock(nn.Module):
         x = x.permute(0, 3, 1, 2)
         return x
 
-# ConvNeXt-based segmentation model.
-# It is organized in multiple stages with intermediate downsampling layers.
-# The final head produces prediction maps, which are then upsampled to the input resolution.
+# Decoder block: upsamples input, concatenates with skip connection, and refines via convolution.
+class DecoderBlock(nn.Module):
+    def __init__(self, in_channels, skip_channels, out_channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels + skip_channels, out_channels, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.relu2 = nn.ReLU(inplace=True)
+    
+    def forward(self, x, skip):
+        # Upsample x by a factor of 2
+        x = F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False)
+        # Concatenate with corresponding encoder feature (skip connection)
+        x = torch.cat([x, skip], dim=1)
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu1(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu2(x)
+        return x
+
+# ConvNeXt-based segmentation model with U-Net style decoder.
 class ConvNeXtSegmentation(nn.Module):
     def __init__(self, in_channels=3, num_classes=1, depths=[3, 3, 9, 3], dims=[96, 192, 384, 768]):
         """
         Args:
-            in_channels: Number of channels in the input image/features.
-            num_classes: Number of prediction channels (e.g. 1 for binary segmentation).
+            in_channels: Number of channels in the input image.
+            num_classes: Number of prediction channels (e.g., 1 for binary segmentation).
             depths: Number of ConvNeXt blocks in each stage.
             dims: Feature dimensions for each stage.
         """
         super().__init__()
-        # Stem: initial downsampling via a conv layer with kernel 4 and stride 4,
-        # followed by a normalization.
+        # Encoder: Stem and stages.
         self.stem = nn.Sequential(
             nn.Conv2d(in_channels, dims[0], kernel_size=4, stride=4),
             LayerNorm2d(dims[0])
@@ -72,10 +94,10 @@ class ConvNeXtSegmentation(nn.Module):
         self.downsample_layers = nn.ModuleList()
         self.stages = nn.ModuleList()
 
-        # Stage 1 (after stem)
+        # Stage 1 (resolution: H/4)
         self.stages.append(nn.Sequential(*[ConvNeXtBlock(dims[0]) for _ in range(depths[0])]))
-
-        # Stage 2
+        
+        # Stage 2 (resolution: H/8)
         self.downsample_layers.append(
             nn.Sequential(
                 LayerNorm2d(dims[0]),
@@ -84,7 +106,7 @@ class ConvNeXtSegmentation(nn.Module):
         )
         self.stages.append(nn.Sequential(*[ConvNeXtBlock(dims[1]) for _ in range(depths[1])]))
 
-        # Stage 3
+        # Stage 3 (resolution: H/16)
         self.downsample_layers.append(
             nn.Sequential(
                 LayerNorm2d(dims[1]),
@@ -93,7 +115,7 @@ class ConvNeXtSegmentation(nn.Module):
         )
         self.stages.append(nn.Sequential(*[ConvNeXtBlock(dims[2]) for _ in range(depths[2])]))
 
-        # Stage 4
+        # Stage 4 (resolution: H/32)
         self.downsample_layers.append(
             nn.Sequential(
                 LayerNorm2d(dims[2]),
@@ -102,25 +124,38 @@ class ConvNeXtSegmentation(nn.Module):
         )
         self.stages.append(nn.Sequential(*[ConvNeXtBlock(dims[3]) for _ in range(depths[3])]))
 
-        # Segmentation head: a few conv layers to produce prediction maps.
+        # Decoder: U-Net style blocks.
+        # Decoder Block 1: upsample from stage 4 (H/32) to merge with stage 3 (H/16).
+        self.decoder1 = DecoderBlock(in_channels=dims[3], skip_channels=dims[2], out_channels=dims[2])
+        # Decoder Block 2: upsample to merge with stage 2 (H/8).
+        self.decoder2 = DecoderBlock(in_channels=dims[2], skip_channels=dims[1], out_channels=dims[1])
+        # Decoder Block 3: upsample to merge with stage 1 (H/4).
+        self.decoder3 = DecoderBlock(in_channels=dims[1], skip_channels=dims[0], out_channels=dims[0])
+
+        # Final segmentation head: produces prediction maps.
         self.head = nn.Sequential(
-            nn.Conv2d(dims[-1], dims[-1], kernel_size=3, padding=1),
+            nn.Conv2d(dims[0], dims[0], kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(dims[-1], num_classes, kernel_size=1)
+            nn.Conv2d(dims[0], num_classes, kernel_size=1)
         )
         
     def forward(self, x):
-        # x: input tensor of shape [B, in_channels, H, W]
-        x = self.stem(x)  # downsample by factor of 4
-        x = self.stages[0](x)
-        # Each downsample layer further halves the spatial dimensions.
-        for i in range(3):
-            x = self.downsample_layers[i](x)
-            x = self.stages[i+1](x)
-        x = self.head(x)
-        # The overall downsampling factor is 4 * 2^3 = 32. Upsample back to input resolution.
-        x = F.interpolate(x, scale_factor=32, mode="bilinear", align_corners=False)
-        return x
+        # Encoder
+        x0 = self.stem(x)                      # (B, dims[0], H/4, W/4)
+        x1 = self.stages[0](x0)                # (B, dims[0], H/4, W/4)
+        x2 = self.stages[1](self.downsample_layers[0](x1))  # (B, dims[1], H/8, W/8)
+        x3 = self.stages[2](self.downsample_layers[1](x2))  # (B, dims[2], H/16, W/16)
+        x4 = self.stages[3](self.downsample_layers[2](x3))  # (B, dims[3], H/32, W/32)
+
+        # Decoder with skip connections
+        d1 = self.decoder1(x4, x3)   # (B, dims[2], H/16, W/16)
+        d2 = self.decoder2(d1, x2)   # (B, dims[1], H/8, W/8)
+        d3 = self.decoder3(d2, x1)   # (B, dims[0], H/4, W/4)
+
+        out = self.head(d3)         # (B, num_classes, H/4, W/4)
+        # Upsample to match original resolution.
+        out = F.interpolate(out, scale_factor=4, mode="bilinear", align_corners=False)
+        return torch.sigmoid(out)
 
 def reshape_tokens_to_grid(tokens):
     B, N, D = tokens.shape
