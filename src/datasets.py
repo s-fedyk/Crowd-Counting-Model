@@ -19,6 +19,22 @@ from CLIP import transform
 For verification.
 """
 
+def compute_dataset_stats(dataset_dir):
+    channel_sum = torch.zeros(3)
+    channel_sq_sum = torch.zeros(3)
+    num_pixels = 0
+    
+    for img_path in tqdm(os.listdir(dataset_dir)):
+        img = Image.open(os.path.join(dataset_dir, img_path)).convert('RGB')
+        img_tensor = transforms.ToTensor()(img)  # [3, H, W]
+        channel_sum += img_tensor.sum(dim=[1,2])
+        channel_sq_sum += (img_tensor**2).sum(dim=[1,2])
+        num_pixels += img_tensor.shape[1] * img_tensor.shape[2]
+    
+    mean = channel_sum / num_pixels
+    std = (channel_sq_sum / num_pixels - mean**2).sqrt()
+    
+    return mean.tolist(), std.tolist()
 
 def plot_sample(image, gt_map):
     image = image.permute(1, 2, 0).cpu().numpy()
@@ -324,7 +340,8 @@ class CrowdDataset(Dataset):
         else:
             full_img = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Resize(self.resize_shape)
+                transforms.Resize(self.resize_shape),
+                transforms.Normalize([0.45164498686790466, 0.44694244861602783, 0.43153998255729675], [0.23729746043682098, 0.22956639528274536, 0.2261216640472412])
             ])(full_img)
 
         # Load image patches.
@@ -344,13 +361,16 @@ class CrowdDataset(Dataset):
         if self.gt_transform:
             gt = self.gt_transform(gt)
 
-        # Load the blurred ground truth map.
         gt_blur = np.load(sample['gt_blur'])
-        gt_blur = torch.from_numpy(gt_blur).float().unsqueeze(0)
+        gt_blur = torch.from_numpy(gt_blur).float().unsqueeze(0)  # Shape: [1, H, W]
 
-        gt_blur = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Resize(self.resize_shape)
-        ])(full_img)
+        original_H, original_W = gt_blur.shape[1], gt_blur.shape[2]
+
+        gt_blur = transforms.Resize(self.resize_shape)(gt_blur)
+
+        # Calculate scaling factor to preserve sum
+        new_H, new_W = self.resize_shape
+        scale_factor = (original_H / new_H) * (original_W / new_W)
+        gt_blur *= scale_factor  # Correct sum after resizing
 
         return full_img, img_patches, gt, gt_blur

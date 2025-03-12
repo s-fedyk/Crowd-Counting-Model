@@ -41,8 +41,8 @@ def plot_sample(image: torch.Tensor, gt_map: torch.Tensor, pred_map: torch.Tenso
     pred_density = pred_map.cpu().detach().squeeze().numpy()  # Shape [H, W]
 
     # Calculate counts by summing density values.
-    gt_count = gt_density.sum()
-    pred_count = pred_density.sum()
+    gt_count = gt_map.sum(dim=[1,2]).item()
+    pred_count = pred_map.sum(dim=[1,2]).item()
 
     # Create a figure with three subplots.
     fig, axs = plt.subplots(1, 3, figsize=(18, 6))

@@ -192,7 +192,7 @@ class UNet(nn.Module):
         x = self.up4(x, x1)       # 64x224x224
 
         logits = self.outc(x)     # 1x224x224
-        return torch.sigmoid(logits)
+        return torch.abs(logits)
 
 # Helper: custom LayerNorm for 2D conv features.
 # It permutes the tensor so that normalization is applied on the channel dimension.

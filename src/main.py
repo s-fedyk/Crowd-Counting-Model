@@ -16,7 +16,7 @@ import numpy as np
 
 
 from CLIPGCC import CLIPGCC, ConvNeXtSegmentation, UNet
-from losses import CrowdCountingLoss
+from losses import CrowdCountingLoss,DensityLoss
 
 from CLIP.factory import create_model_from_pretrained
 from datasets import CrowdDataset, preprocess
@@ -61,7 +61,7 @@ def parse_args():
                         help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=8,
                         help='Input batch size for training')
-    parser.add_argument('--lr', type=float, default=1e-4,
+    parser.add_argument('--lr', type=float, default=1e-3,
                         help='Learning rate')
     parser.add_argument('--log-dir', type=str, default='experiments',
                         help='Directory to save logs and checkpoints')
@@ -110,7 +110,7 @@ if __name__ == "__main__":
     # Training dataset
     train_dataset = CrowdDataset(
         root=processed_train_path)
-    dataloader = DataLoader(train_dataset, batch_size=1,
+    dataloader = DataLoader(train_dataset, batch_size=args.batch_size,
                             shuffle=True, num_workers=4)
 
     # Eval dataset
@@ -122,9 +122,9 @@ if __name__ == "__main__":
     eval_dataset = CrowdDataset(
         root=processed_eval_path)
     eval_dataloader = DataLoader(
-        eval_dataset, batch_size=1, shuffle=False, num_workers=4)
+        eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
-    loss_fn = CrowdCountingLoss()
+    loss_fn = DensityLoss()
     optimizer = optim.Adam(model.parameters(),
                            lr=args.lr, weight_decay=1e-4)
     best_eval_mae = float('inf')
@@ -141,9 +141,10 @@ if __name__ == "__main__":
 
         for full_img, patch_tensor, gt_tensor, gt_blur_tensor, in tqdm(dataloader, desc="Epoch Progress"):
             optimizer.zero_grad()
-            # Process patches in smaller mini-batches:
+
             full_img = full_img.to(device)
             gt_blur_tensor = gt_blur_tensor.to(device)
+            gt_tensor = gt_tensor.to(device)
 
             pred = model(full_img)
 
@@ -170,15 +171,15 @@ if __name__ == "__main__":
                     gt_blur_tensor = gt_blur_tensor.to(device)
                     pred = model(full_img)
 
-                    pred_count = pred.sum(dim=[0, 1])
-                    gt_count = gt_blur_tensor.sum(dim=[0, 1])
+                    pred_count = pred.sum(dim=[2, 3])
+                    gt_count = gt_blur_tensor.sum(dim=[2, 3])
 
                     total_abs_error += torch.sum(
                         torch.abs(pred_count - gt_count)).item()
-                    total_images += 1
-                    if (i <= 10):
-                        plot_sample(full_img[0], gt_tensor[0], pred[0]).savefig(
-                            f"{args.log_dir}/img-{i}")
+                    plot_sample(full_img[0], gt_blur_tensor[0], pred[0]).savefig(
+                        f"{args.log_dir}/img-{i}")
+                    total_images += full_img.shape[0] 
+
 
             mae = total_abs_error / total_images
             if mae < best_eval_mae:
