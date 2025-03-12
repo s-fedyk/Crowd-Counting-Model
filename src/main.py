@@ -107,9 +107,10 @@ if __name__ == "__main__":
     if not os.path.exists(processed_train_path):
         preprocess(input_train_path, processed_train_path)
 
+    resize_dim = 448
     # Training dataset
     train_dataset = CrowdDataset(
-        root=processed_train_path)
+        root=processed_train_path, resize_shape=(resize_dim,resize_dim))
     dataloader = DataLoader(train_dataset, batch_size=args.batch_size,
                             shuffle=True, num_workers=4)
 
@@ -120,7 +121,7 @@ if __name__ == "__main__":
         preprocess(input_eval_path, processed_eval_path)
 
     eval_dataset = CrowdDataset(
-        root=processed_eval_path)
+        root=processed_eval_path, resize_shape=(resize_dim,resize_dim))
     eval_dataloader = DataLoader(
         eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
