@@ -61,7 +61,7 @@ def parse_args():
                         help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=8,
                         help='Input batch size for training')
-    parser.add_argument('--lr', type=float, default=1e-4,
+    parser.add_argument('--lr', type=float, default=1e-5,
                         help='Learning rate')
     parser.add_argument('--log-dir', type=str, default='experiments',
                         help='Directory to save logs and checkpoints')
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     if not os.path.exists(processed_train_path):
         preprocess(input_train_path, processed_train_path)
 
-    resize_dim = 448
+    resize_dim = 224
     # Training dataset
     train_dataset = CrowdDataset(
         root=processed_train_path, resize_shape=(resize_dim,resize_dim))
