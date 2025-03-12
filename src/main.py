@@ -203,7 +203,11 @@ if __name__ == "__main__":
             gts_all = torch.cat(gt_counts_list).view(-1)
 
             mae = total_abs_error / total_images
-            # Multiply by 100 to express as a percentage.
+            if mae < best_eval_mae:
+                save_checkpoint(model, optimizer,
+                                epoch+1, args.log_dir, True)
+                best_eval_mae = mae
+
             mape = (total_mape / total_images) * 100
 
             mse = ((preds_all - gts_all) ** 2).mean().item()
