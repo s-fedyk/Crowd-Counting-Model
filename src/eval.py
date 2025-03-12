@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from CLIP import transform
-from CLIPGCC import CLIPGCC
+from CLIPGCC import CLIPGCC, UNet
 from losses import CrowdCountingLoss
 
 from CLIP.factory import create_model_from_pretrained
@@ -121,8 +121,11 @@ def parse_args():
                         help='CLIP model variant to use')
     parser.add_argument('--eval-path', type=str, default='ShanghaiTech/part_B/test_data',
                         help='Input evaluation directory')
-    parser.add_argument('--checkpoint-path', type=str, default='experiments/save.pth.tar',
+    parser.add_argument('--checkpoint-path', type=str, default='experiments/best_checkpoint.pth.tar',
                         help='Path of model to evaluate')
+    parser.add_argument('--log-dir', type=str, default='experiments/',
+                        help='Path of model to evaluate')
+
 
     return parser.parse_args()
 
@@ -131,13 +134,8 @@ if __name__ == "__main__":
     args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    clip_model, transforms = create_model_from_pretrained(
-        args.clip_model, pretrained="openai", force_quick_gelu=True)
-    clip_model = clip_model.to(device)
-    clip_model.eval()
-
-    model = CLIPGCC(clip_model).to(device)
-
+    
+    model = UNet().to(device)
     load_from_checkpoint(args.checkpoint_path, model)
 
     input_eval_path = f"./data/{args.eval_path}"
@@ -145,8 +143,7 @@ if __name__ == "__main__":
     if not os.path.exists(processed_eval_path):
         preprocess(input_eval_path, processed_eval_path)
 
-    eval_dataset = CrowdDataset(
-        root=processed_eval_path, patch_transform=transforms)
+    eval_dataset = CrowdDataset(root=processed_eval_path)
     eval_dataloader = DataLoader(
         eval_dataset, batch_size=1, shuffle=False, num_workers=4)
 

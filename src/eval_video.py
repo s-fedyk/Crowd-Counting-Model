@@ -129,13 +129,14 @@ if __name__ == '__main__':
 
     # Configure normalization
     NORMALIZATIONS = {
-        'A': ([0.411, 0.373, 0.364], [0.284, 0.276, 0.279]),  # SHA_NORM
+        'A': ([0.4112841486930847, 0.3736303746700287, 0.36400306224823], [
+                0.28426897525787354, 0.27666980028152466, 0.2797151803970337]),  # SHA_NORM
         'B': ([0.451, 0.446, 0.431], [0.237, 0.229, 0.226])   # SHB_NORM
     }
     mean, std = NORMALIZATIONS[args.dataset_part]
 
     # Create transformation
-    transform = get_transform((448, 448), mean, std)
+    transform = get_transform((224, 224), mean, std)
 
     # Generate video
     create_video(args.input_dir, args.output_video,

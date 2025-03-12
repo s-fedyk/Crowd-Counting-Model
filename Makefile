@@ -9,7 +9,7 @@ video:
 		--input-dir "./src/moosejaw_video" \
 		--checkpoint "./experiments/best_checkpoint.pth.tar" \
 		--output-video output.mp4 \
-		--dataset-part A \
+		--dataset-part B \
 		--fps 30
 packages:
 	python3 -m pip install -r ./requirements.txt
