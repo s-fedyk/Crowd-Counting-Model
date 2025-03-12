@@ -17,7 +17,7 @@ import numpy as np
 
 
 from CLIPGCC import CLIPGCC, ConvNeXtSegmentation, UNet
-from losses import CrowdCountingLoss,DensityLoss
+from losses import CrowdCountingLoss, DensityLoss
 
 from CLIP.factory import create_model_from_pretrained
 from datasets import CrowdDataset, preprocess
@@ -82,6 +82,7 @@ def parse_args():
 
     return parser.parse_args()
 
+
 if __name__ == "__main__":
     args = parse_args()
     setup_logging(args.log_dir)
@@ -101,8 +102,10 @@ if __name__ == "__main__":
     model.to(device)
     model.train()
 
-    SHA_NORM = ([0.4112841486930847, 0.3736303746700287, 0.36400306224823], [0.28426897525787354, 0.27666980028152466, 0.2797151803970337])
-    SHB_NORM = ([0.45164498686790466, 0.44694244861602783, 0.43153998255729675], [0.23729746043682098, 0.22956639528274536, 0.2261216640472412])
+    SHA_NORM = ([0.4112841486930847, 0.3736303746700287, 0.36400306224823], [
+                0.28426897525787354, 0.27666980028152466, 0.2797151803970337])
+    SHB_NORM = ([0.45164498686790466, 0.44694244861602783, 0.43153998255729675], [
+                0.23729746043682098, 0.22956639528274536, 0.2261216640472412])
     # Train dataset
     input_train_path = f"./data/{args.train_path}"
     processed_train_path = f"./processed/train_{args.train_path}"
@@ -122,7 +125,7 @@ if __name__ == "__main__":
     resize_dim = 448
     # Training dataset
     train_dataset = CrowdDataset(
-        root=processed_train_path, resize_shape=(resize_dim,resize_dim))
+        root=processed_train_path, resize_shape=(resize_dim, resize_dim))
     dataloader = DataLoader(train_dataset, batch_size=args.batch_size,
                             shuffle=True, num_workers=4, collate_fn=custom_collate_fn)
 
@@ -133,7 +136,7 @@ if __name__ == "__main__":
         preprocess(input_eval_path, processed_eval_path)
 
     eval_dataset = CrowdDataset(
-        root=processed_eval_path, resize_shape=(resize_dim,resize_dim))
+        root=processed_eval_path, resize_shape=(resize_dim, resize_dim))
     eval_dataloader = DataLoader(
         eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, collate_fn=custom_collate_fn)
 
@@ -160,7 +163,7 @@ if __name__ == "__main__":
 
             pred = model(full_img)
 
-            loss = loss_fn(pred,gt_blur_tensor)
+            loss = loss_fn(pred, gt_blur_tensor)
             loss.backward()
             optimizer.step()
 
@@ -187,10 +190,12 @@ if __name__ == "__main__":
                     pred_count = pred.sum(dim=[2, 3])
                     gt_count = gt_blur_tensor.sum(dim=[2, 3])
 
-                    total_abs_error += torch.sum(torch.abs(pred_count - gt_count)).item()
+                    total_abs_error += torch.sum(
+                        torch.abs(pred_count - gt_count)).item()
                     total_images += full_img.shape[0]
 
-                    abs_percentage_error = torch.abs((gt_count - pred_count) / (gt_count + 1e-6))
+                    abs_percentage_error = torch.abs(
+                        (gt_count - pred_count) / (gt_count + 1e-6))
                     total_mape += torch.sum(abs_percentage_error).item()
 
                     pred_counts_list.append(pred_count.cpu())
@@ -218,7 +223,8 @@ if __name__ == "__main__":
             ss_tot = ((gts_all - gt_mean) ** 2).sum().item()
             r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else float('nan')
 
-            print(f"Epoch [{epoch+1}/{num_epochs}] Evaluation MAE: {mae:.2f} | MAPE: {mape:.2f}% | RMSE: {rmse:.2f} | R²: {r2:.2f}")
+            print(
+                f"Epoch [{epoch+1}/{num_epochs}] Evaluation MAE: {mae:.2f} | MAPE: {mape:.2f}% | RMSE: {rmse:.2f} | R²: {r2:.2f}")
             writer.add_scalar('mae/test', mae, epoch)
             writer.add_scalar('mape/test', mape, epoch)
             writer.add_scalar('rmse/test', rmse, epoch)

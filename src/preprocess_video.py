@@ -1,12 +1,10 @@
 import cv2
-vidcap = cv2.VideoCapture('big_buck_bunny_720p_5mb.mp4')
-success,image = vidcap.read()
+vidcap = cv2.VideoCapture('moose_jaw_trial.MOV')
+success, image = vidcap.read()
 count = 0
 while success:
-  cv2.imwrite("./moosejaw_video/frame%d.jpg" % count, image)     # save frame as JPEG file      
-  success,image = vidcap.read()
-  print('Read a new frame: ', success)
-  count += 1
-
-
-
+    cv2.imwrite("./moosejaw_video/frame%d.jpg" %
+                count, image)     # save frame as JPEG file
+    success, image = vidcap.read()
+    print('Read a new frame: ', success)
+    count += 1
