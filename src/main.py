@@ -61,7 +61,7 @@ def parse_args():
                         help='Number of training epochs')
     parser.add_argument('--batch-size', type=int, default=8,
                         help='Input batch size for training')
-    parser.add_argument('--lr', type=float, default=1e-6,
+    parser.add_argument('--lr', type=float, default=1e-4,
                         help='Learning rate')
     parser.add_argument('--log-dir', type=str, default='experiments',
                         help='Directory to save logs and checkpoints')
@@ -127,7 +127,7 @@ if __name__ == "__main__":
 
     loss_fn = DensityLoss()
     optimizer = optim.Adam(model.parameters(),
-                           lr=args.lr, weight_decay=1e-4)
+                           lr=args.lr, weight_decay=1e-6)
     best_eval_mae = float('inf')
     num_epochs = args.epochs
 
