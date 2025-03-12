@@ -7,10 +7,11 @@ import argparse
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
-from datasets import reassemble_from_patches, split_into_patches
+from datasets import reassemble_from_patches, split_into_patches, compute_dataset_stats
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
+import math
 from eval import plot_sample, load_from_checkpoint
 import numpy as np
 
@@ -59,7 +60,7 @@ def parse_args():
         description='CLIP-Guided Crowd Counting Training')
     parser.add_argument('--epochs', type=int, default=900,
                         help='Number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=8,
+    parser.add_argument('--batch-size', type=int, default=2,
                         help='Input batch size for training')
     parser.add_argument('--lr', type=float, default=1e-5,
                         help='Learning rate')
@@ -76,11 +77,10 @@ def parse_args():
                         help='CLIP model variant to use')
     parser.add_argument('--eval-path', type=str, default='ShanghaiTech/part_B/test_data',
                         help='Input evaluation directory')
-    parser.add_argument('--train-path', type=str, default='ShanghaiTech/part_B/train_data',
+    parser.add_argument('--train-path', type=str, default='ShanghaiTech/part_A/train_data',
                         help='Input train directory')
 
     return parser.parse_args()
-
 
 if __name__ == "__main__":
     args = parse_args()
@@ -101,18 +101,30 @@ if __name__ == "__main__":
     model.to(device)
     model.train()
 
+    SHA_NORM = ([0.4112841486930847, 0.3736303746700287, 0.36400306224823], [0.28426897525787354, 0.27666980028152466, 0.2797151803970337])
+    SHB_NORM = ([0.45164498686790466, 0.44694244861602783, 0.43153998255729675], [0.23729746043682098, 0.22956639528274536, 0.2261216640472412])
     # Train dataset
     input_train_path = f"./data/{args.train_path}"
     processed_train_path = f"./processed/train_{args.train_path}"
+
     if not os.path.exists(processed_train_path):
         preprocess(input_train_path, processed_train_path)
 
-    resize_dim = 224
+    def custom_collate_fn(batch):
+        # Unpack the batch
+        full_imgs, gt_blurs = zip(*batch)
+        # Stack full images, ground truths, and blurred GT if they are consistent
+        full_imgs = torch.stack(full_imgs, dim=0)
+        gt_blurs = torch.stack(gt_blurs, dim=0)
+        # Leave patches_list as a list of lists (or process further if needed)
+        return full_imgs, gt_blurs
+
+    resize_dim = 448
     # Training dataset
     train_dataset = CrowdDataset(
         root=processed_train_path, resize_shape=(resize_dim,resize_dim))
     dataloader = DataLoader(train_dataset, batch_size=args.batch_size,
-                            shuffle=True, num_workers=4)
+                            shuffle=True, num_workers=4, collate_fn=custom_collate_fn)
 
     # Eval dataset
     input_eval_path = f"./data/{args.eval_path}"
@@ -123,7 +135,7 @@ if __name__ == "__main__":
     eval_dataset = CrowdDataset(
         root=processed_eval_path, resize_shape=(resize_dim,resize_dim))
     eval_dataloader = DataLoader(
-        eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
+        eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, collate_fn=custom_collate_fn)
 
     loss_fn = DensityLoss()
     optimizer = optim.Adam(model.parameters(),
@@ -140,16 +152,15 @@ if __name__ == "__main__":
     for epoch in range(num_epochs):
         running_loss = 0.0
 
-        for full_img, patch_tensor, gt_tensor, gt_blur_tensor, in tqdm(dataloader, desc="Epoch Progress"):
+        for full_img, gt_blur_tensor, in tqdm(dataloader, desc="Epoch Progress"):
             optimizer.zero_grad()
 
             full_img = full_img.to(device)
             gt_blur_tensor = gt_blur_tensor.to(device)
-            gt_tensor = gt_tensor.to(device)
 
             pred = model(full_img)
 
-            loss = loss_fn(pred, gt_tensor, gt_blur_tensor)
+            loss = loss_fn(pred,gt_blur_tensor)
             loss.backward()
             optimizer.step()
 
@@ -159,15 +170,16 @@ if __name__ == "__main__":
         print(f"Epoch [{epoch+1}/{num_epochs}] Loss: {avg_loss:.4f}")
         writer.add_scalar('Loss/train', avg_loss, epoch)
 
-        # if ((epoch+1) % args.save_interval == 0):
-        # kj   save_checkpoint(model, optimizer, epoch+1, args.log_dir)
-
         if ((epoch+1) % args.eval_interval == 0):
             model.eval()
             total_abs_error = 0.0
             total_images = 0
+            total_mape = 0.0
+            pred_counts_list = []
+            gt_counts_list = []
+
             with torch.no_grad():
-                for i, (full_img, patch_tensor, gt_tensor, gt_blur_tensor) in enumerate(eval_dataloader):
+                for i, (full_img, gt_blur_tensor) in enumerate(eval_dataloader):
                     full_img = full_img.to(device)
                     gt_blur_tensor = gt_blur_tensor.to(device)
                     pred = model(full_img)
@@ -175,21 +187,37 @@ if __name__ == "__main__":
                     pred_count = pred.sum(dim=[2, 3])
                     gt_count = gt_blur_tensor.sum(dim=[2, 3])
 
-                    total_abs_error += torch.sum(
-                        torch.abs(pred_count - gt_count)).item()
+                    total_abs_error += torch.sum(torch.abs(pred_count - gt_count)).item()
+                    total_images += full_img.shape[0]
+
+                    abs_percentage_error = torch.abs((gt_count - pred_count) / (gt_count + 1e-6))
+                    total_mape += torch.sum(abs_percentage_error).item()
+
+                    pred_counts_list.append(pred_count.cpu())
+                    gt_counts_list.append(gt_count.cpu())
+
                     plot_sample(full_img[0], gt_blur_tensor[0], pred[0]).savefig(
                         f"{args.log_dir}/img-{i}")
-                    total_images += full_img.shape[0] 
 
+            preds_all = torch.cat(pred_counts_list).view(-1)
+            gts_all = torch.cat(gt_counts_list).view(-1)
 
             mae = total_abs_error / total_images
-            if mae < best_eval_mae:
-                save_checkpoint(model, optimizer,
-                                epoch+1, args.log_dir, True)
-                best_eval_mae = mae
+            # Multiply by 100 to express as a percentage.
+            mape = (total_mape / total_images) * 100
 
-            print(f"Epoch [{epoch+1}/{num_epochs}] Evaluation MAE: {mae:.2f}")
+            mse = ((preds_all - gts_all) ** 2).mean().item()
+            rmse = math.sqrt(mse)
+
+            ss_res = ((preds_all - gts_all) ** 2).sum().item()
+            gt_mean = gts_all.mean()
+            ss_tot = ((gts_all - gt_mean) ** 2).sum().item()
+            r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else float('nan')
+
+            print(f"Epoch [{epoch+1}/{num_epochs}] Evaluation MAE: {mae:.2f} | MAPE: {mape:.2f}% | RMSE: {rmse:.2f} | R²: {r2:.2f}")
             writer.add_scalar('mae/test', mae, epoch)
-            model.train()
+            writer.add_scalar('mape/test', mape, epoch)
+            writer.add_scalar('rmse/test', rmse, epoch)
+            writer.add_scalar('r2/test', r2, epoch)
         # Switch back to train mode.
         model.train()

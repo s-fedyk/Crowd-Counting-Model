@@ -65,13 +65,11 @@ class DensityLoss(nn.Module):
         )
         self.focal_loss = FocalLoss()
 
-    def forward(self, pred_map, gt_map, gt_blur_map):
+    def forward(self, pred_map, gt_blur_map):
         ssim_loss = (1 - ssim(pred_map, gt_blur_map))
 
         binary_gt = (gt_blur_map > 0).float()
-        binary_pred = (pred_map > 0).float()
-
-        pixel_differences = self.focal_loss(binary_pred, binary_gt)
+        pixel_differences = self.focal_loss(pred_map, binary_gt)
         return 0.05 * ssim_loss + pixel_differences
 
 

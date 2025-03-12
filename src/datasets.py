@@ -341,7 +341,7 @@ class CrowdDataset(Dataset):
             full_img = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Resize(self.resize_shape),
-                transforms.Normalize([0.45164498686790466, 0.44694244861602783, 0.43153998255729675], [0.23729746043682098, 0.22956639528274536, 0.2261216640472412])
+                transforms.Normalize([0.4112841486930847, 0.3736303746700287, 0.36400306224823], [0.28426897525787354, 0.27666980028152466, 0.2797151803970337])
             ])(full_img)
 
         # Load image patches.
@@ -361,16 +361,18 @@ class CrowdDataset(Dataset):
         if self.gt_transform:
             gt = self.gt_transform(gt)
 
-        gt_blur = np.load(sample['gt_blur'])
-        gt_blur = torch.from_numpy(gt_blur).float().unsqueeze(0)  # Shape: [1, H, W]
-
+        # Load and process blurred GT
+        gt_blur_np = np.load(sample['gt_blur'])
+        gt_blur = torch.from_numpy(gt_blur_np).float().unsqueeze(0)  # Shape: [1, H, W]
         original_H, original_W = gt_blur.shape[1], gt_blur.shape[2]
 
+        # Create resizable tensor
+        gt_blur = gt_blur.contiguous().clone()  # Break numpy memory sharing
         gt_blur = transforms.Resize(self.resize_shape)(gt_blur)
 
         # Calculate scaling factor to preserve sum
         new_H, new_W = self.resize_shape
         scale_factor = (original_H / new_H) * (original_W / new_W)
-        gt_blur *= scale_factor  # Correct sum after resizing
+        gt_blur *= scale_factor
 
-        return full_img, img_patches, gt, gt_blur
+        return full_img, gt_blur
