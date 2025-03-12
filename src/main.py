@@ -107,7 +107,7 @@ if __name__ == "__main__":
     if not os.path.exists(processed_train_path):
         preprocess(input_train_path, processed_train_path)
 
-    resize_dim = 224
+    resize_dim = 448
     # Training dataset
     train_dataset = CrowdDataset(
         root=processed_train_path, resize_shape=(resize_dim,resize_dim))
