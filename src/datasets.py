@@ -341,7 +341,8 @@ class CrowdDataset(Dataset):
             full_img = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.Resize(self.resize_shape),
-                transforms.Normalize([0.4112841486930847, 0.3736303746700287, 0.36400306224823], [0.28426897525787354, 0.27666980028152466, 0.2797151803970337])
+                transforms.Normalize([0.45164498686790466, 0.44694244861602783, 0.43153998255729675], [
+                0.23729746043682098, 0.22956639528274536, 0.2261216640472412])
             ])(full_img)
 
         # Load image patches.
