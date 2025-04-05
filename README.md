@@ -1,4 +1,6 @@
-# A crowd counting model created for use in government buildings.
+# UNet Crowd Counting model
+
+Created for the city of Moosejaw.
 
 (Trained on SHB)
 
